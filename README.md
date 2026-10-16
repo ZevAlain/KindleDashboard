@@ -11,9 +11,9 @@ docker compose -f docker-compose.image.yml up -d
 # 或本地构建
 docker compose up -d
 
-# 或 docker run
+# 或 docker run（bind mount：数据落在当前目录 data/，备份就是复制文件夹）
 docker run -d --name kindledashboard --restart unless-stopped \
-  -p 41241:41241 -v kindle-data:/data \
+  -p 41241:41241 -v $(pwd)/data:/data \
   -e TZ=Asia/Shanghai -e KD_PASSWORD=你的密码 \
   ghcr.io/zevalain/kindledashboard:latest
 
@@ -39,7 +39,33 @@ pip install -r requirements.txt && python app.py
 
 ## 数据与备份
 
-全在 `KD_HOME`：`data.json`（待办与配置，`.bak` 为上一版本，损坏自动回退）、`.runtime_secrets`、`cache/`、`static/emoji/`。备份 `data.json` 即可迁移。数据含家庭隐私，勿提交仓库。
+全在 `KD_HOME`（Docker 内为 `/data` 卷）：`data.json`（待办与配置，`.bak` 为上一版本，损坏自动回退）、`.runtime_secrets`（密码与 session 密钥）、`cache/`、`static/emoji/`（这两项删了会自动重建）。数据含家庭隐私，勿提交仓库。
+
+**日常备份只需 `data.json` 一个文件**（原子写，容器运行中直接拷也安全）：
+
+```bash
+# bind mount（compose / 推荐）：就是普通目录
+cp data/data.json ~/backup/data-$(date +%Y%m%d).json
+# named volume（docker run -v kindle-data:/data）：
+docker cp kindledashboard:/data/data.json ~/backup/data-$(date +%Y%m%d).json
+
+# 导入
+cp ~/backup/data-20261016.json data/data.json && docker compose restart
+# 或
+docker cp ~/backup/data-20261016.json kindledashboard:/data/data.json && docker restart kindledashboard
+```
+
+**整卷迁移**（连密码/缓存一起搬）：
+
+```bash
+# 导出
+docker run --rm -v kindle-data:/data:ro -v $(pwd):/backup alpine \
+  tar czf /backup/kindle-data.tar.gz -C /data .
+# 新机器导入
+docker volume create kindle-data
+docker run --rm -v kindle-data:/data -v $(pwd):/backup alpine \
+  sh -c "rm -rf /data/* && tar xzf /backup/kindle-data.tar.gz -C /data"
+```
 
 ## 已知限制
 
