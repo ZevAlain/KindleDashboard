@@ -43,7 +43,36 @@ jobs:
             type=sha
 
       # main 每次提交都重建：latest 永远是最新代码（amd64 + arm64 双架构）
-      - name: Build & push
+      # 先本地 build 单架构做启动冒烟测试，通过后才推正式多架构镜像——
+      # "build 成功但容器起不来"（如 COPY 语义、import 错误）在这里拦住
+      - name: Build for smoke test (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: kindledashboard:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (start container + /ping)
+        run: |
+          docker run -d --name smoke -p 41241:41241 -e KD_PASSWORD=citest kindledashboard:smoke
+          code=""
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:41241/ping || true)
+            [ "$code" = "204" ] && break
+            sleep 2
+          done
+          if [ "$code" != "204" ]; then
+            echo "=== container failed to serve /ping, logs: ==="
+            docker logs smoke
+            exit 1
+          fi
+          echo "smoke test OK (/ping -> 204)"
+          docker rm -f smoke
+
+      - name: Build & push (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
           context: .

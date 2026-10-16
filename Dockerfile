@@ -18,7 +18,10 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py kindle_dashboard/ ./
+# 注意：目录 COPY 是"拷内容"语义，必须单独一行并把包名写在目标里，
+# 否则包内容会被平铺进 /app 导致 import kindle_dashboard 失败
+COPY app.py .
+COPY kindle_dashboard ./kindle_dashboard
 
 # 非 root 运行；/data 为数据卷（data.json / cache / static/emoji / .runtime_secrets）
 RUN useradd --create-home kindle \
