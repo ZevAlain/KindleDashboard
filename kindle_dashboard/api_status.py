@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+"""外部 API 抓取状态（后台「数据源」tab 展示）。内存 + 落盘 cache/api_status.json。"""
+import json
+import os
+
+from .config import CACHE_DIR
+from .utils import _atomic_write_json
+
+# ----------------- 外部 API 状态（后台「数据源」tab 展示） -----------------
+# 每个联网来源最近一次成功/失败的时间与错误。只由后台线程写（单写者），
+# 内存 + 落盘 cache/api_status.json（重启后仍能看到上一轮的状态）。
+API_STATUS_FILE = os.path.join(CACHE_DIR, "api_status.json")
+_api_status = {}    # {来源: {"last_ok": ts|None, "last_fail": ts|None, "error": str|None}}
+
+
+def _api_record(source, ok, ts, error=""):
+    """记录一次抓取结果（后台线程调用）；落盘失败不影响主流程。"""
+    _api_status.setdefault(source, {"last_ok": None, "last_fail": None, "error": None})
+    st = _api_status[source]
+    if ok:
+        st["last_ok"] = ts
+        st["last_fail"] = None
+        st["error"] = None
+    else:
+        st["last_fail"] = ts
+        st["error"] = str(error)[:200] or "未知错误"
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        _atomic_write_json(API_STATUS_FILE, _api_status)
+    except Exception:
+        pass
+
+
+def _api_status_merge_disk():
+    """启动时把磁盘上的最后已知状态并进内存（只补缺失项，不覆盖已有）。"""
+    try:
+        with open(API_STATUS_FILE, encoding="utf-8") as f:
+            disk = json.load(f)
+        for k, v in (disk or {}).items():
+            if not isinstance(v, dict):
+                continue
+            mem = _api_status.setdefault(k, {"last_ok": None, "last_fail": None, "error": None})
+            for kk in ("last_ok", "last_fail", "error"):
+                if mem.get(kk) is None and v.get(kk) is not None:
+                    mem[kk] = v.get(kk)
+    except Exception:
+        pass

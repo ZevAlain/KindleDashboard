@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>看板后台管理</title>
+    <style>
+        :root {
+            --bg:#f4f6fb; --card:#fff; --border:#e6e9f0; --txt:#1f2937;
+            --muted:#6b7280; --line:#eef1f6; --accent:#2563eb; --accent-d:#1d4ed8;
+            --accent-soft:#eef3ff; --danger:#dc2626; --danger-soft:#fef2f2;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin:0; background:var(--bg); color:var(--txt); line-height:1.5;
+            font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+        }
+        .wrap { max-width:1120px; margin:0 auto; padding:24px 16px 44px; }
+        header.top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+        .brand h1 { margin:0; font-size:22px; font-weight:800; letter-spacing:.2px; }
+        .brand p { margin:3px 0 0; font-size:13px; color:var(--muted); }
+        .logout-btn { text-decoration:none; color:var(--danger); font-size:14px; font-weight:600; padding:8px 14px; border:1px solid var(--border); border-radius:9px; background:#fff; transition:.15s; }
+        .logout-btn:hover { background:var(--danger-soft); border-color:#f3c9c9; }
+        .stack { display:grid; gap:16px; }
+        .cols { display:grid; grid-template-columns:1fr; gap:16px; align-items:start; }
+        .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+        .card h3 { margin:0; font-size:15px; font-weight:700; display:flex; align-items:center; gap:8px; }
+        .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block; flex:0 0 auto; }
+        .sub { font-size:12.5px; color:var(--muted); margin:7px 0 16px; line-height:1.55; }
+        /* 卡片头部：保存按钮（贴右）+ ? 帮助按钮；长说明收进默认隐藏的帮助框 */
+        .card-save { margin-left:auto; padding:4px 12px; font-size:12.5px; font-weight:700; color:var(--accent);
+                     background:var(--accent-soft); border:1px solid #dbe6ff; border-radius:14px; cursor:pointer; flex:0 0 auto; }
+        .card-save:hover { background:#e2ebff; }
+        .card-save.ok { color:#15803d; background:#dcfce7; border-color:#bbf7d0; }
+        .help-btn { width:24px; height:24px; border-radius:50%; border:1px solid var(--border); background:#fff;
+                    color:var(--muted); font-size:13px; font-weight:700; line-height:1; cursor:pointer; flex:0 0 auto; padding:0; }
+        .help-btn:hover { color:var(--accent); border-color:#c3d4ff; background:var(--accent-soft); }
+        .help-btn.on { color:#fff; background:var(--accent); border-color:var(--accent); }
+        .help-box { font-size:12.5px; color:var(--muted); line-height:1.6; margin:0 0 14px; padding:10px 12px;
+                    border:1px dashed #d5dae3; border-radius:10px; background:#fafbfe; }
+        .land-modes { display:flex; flex-wrap:wrap; gap:8px; }
+        .land-modes .lm-opt { display:inline-flex; align-items:center; gap:6px; font-size:13.5px; font-weight:600; color:#374151;
+                              padding:7px 12px; border:1px solid #d5dae3; border-radius:9px; background:#fff; cursor:pointer; }
+        .land-modes .lm-opt input { margin:0; }
+        .field { margin-bottom:14px; }
+        .field label { display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:6px; }
+        .row2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+        .field input { width:100%; padding:10px 12px; font-size:15px; border:1px solid #d5dae3; border-radius:9px; background:#fff; color:var(--txt); }
+        .field select { width:100%; padding:10px 12px; font-size:15px; border:1px solid #d5dae3; border-radius:9px; background:#fff; color:var(--txt); }
+        .field input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .list { display:flex; flex-direction:column; gap:10px; }
+        .item { border:1px solid var(--border); border-radius:11px; padding:12px; background:#fbfcfe; }
+        .item .main { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .item .main input { padding:9px 11px; font-size:14.5px; border:1px solid #d5dae3; border-radius:8px; background:#fff; color:var(--txt); }
+        .item .main input.grow { flex:1 1 170px; min-width:150px; }
+        .item .main input.time { flex:0 0 auto; }
+        .item .main input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .dash { color:var(--muted); font-size:13px; }
+        .daily { display:inline-flex; align-items:center; gap:6px; font-size:13.5px; font-weight:600; color:#374151; white-space:nowrap; cursor:pointer; }
+        .freq-select {
+            font-size:13.5px; font-weight:600; color:#374151; white-space:nowrap;
+            padding:6px 8px; border:1px solid #d5dae3; border-radius:8px; background:#fff;
+            cursor:pointer; max-width:120px;
+        }
+        .freq-select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .pchecks { margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); display:flex; gap:10px; flex-wrap:wrap; }
+        .pcheck-pill {
+            display:inline-flex; align-items:center; font-size:13.5px; font-weight:600;
+            color:#4b5563; cursor:pointer; padding:6px 14px; border:1px solid var(--border);
+            border-radius:20px; background:#fff; transition:.15s; user-select:none; line-height:1;
+        }
+        .pcheck-pill:hover { border-color:#c3d4ff; background:var(--accent-soft); }
+        .pcheck-pill.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+        .pcheck-pill.on:hover { border-color:var(--accent-d); background:var(--accent-d); }
+        .city-x { margin-left:6px; font-weight:800; cursor:pointer; color:rgba(255,255,255,.75); }
+        .city-x:hover { color:#fff; }
+        .muted { color:var(--muted); font-size:13px; }
+        .btn-add { margin-top:12px; padding:9px 15px; font-size:14px; font-weight:600; color:var(--accent); background:var(--accent-soft); border:1px solid #dbe6ff; border-radius:9px; cursor:pointer; transition:.15s; }
+        .btn-add:hover { background:#e2ebff; }
+        /* 地区搜索：输入 + 搜索按钮 + 候选列表 */
+        .geo-search { display:flex; gap:8px; }
+        .geo-search input { flex:1 1 auto; min-width:0; width:auto; }
+        .geo-search .btn-add { flex:0 0 auto; margin-top:0; white-space:nowrap; }
+        .geo-list { margin-top:8px; border:1px solid var(--line); border-radius:10px; overflow:hidden; display:none; background:#fff; }
+        .geo-item { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; font-size:13.5px; cursor:pointer; border-top:1px solid var(--line); }
+        .geo-item:first-child { border-top:none; }
+        .geo-item:hover { background:var(--accent-soft); }
+        .geo-item .g-admin { color:var(--muted); font-size:12px; margin-left:6px; }
+        .geo-item .g-coord { color:var(--muted); font-size:12.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+        .geo-msg { font-size:12.5px; color:var(--muted); margin-top:7px; line-height:1.55; min-height:19px; }
+        .rmb { padding:7px 12px; font-size:13px; font-weight:600; color:var(--danger); background:#fff; border:1px solid #f3c9c9; border-radius:8px; cursor:pointer; white-space:nowrap; }
+        .rmb:hover { background:var(--danger-soft); border-color:#f0b3b3; }
+        .bdate { flex:0 0 140px; width:140px; }
+        .sdate { flex:0 0 150px; width:150px; }
+        .scal, .sfreq { flex:0 0 auto; padding:9px 8px; font-size:14px; border:1px solid #d5dae3; border-radius:8px; background:#fff; color:var(--txt); }
+        .pleap { font-size:13.5px; color:var(--txt); white-space:nowrap; }
+        .tabnav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+        .tabbtn { text-decoration:none; font-size:14px; font-weight:600; color:var(--muted); padding:8px 16px; border-radius:20px; border:1px solid var(--border); background:#fff; transition:.15s; }
+        .tabbtn:hover { color:var(--accent); border-color:#c3d4ff; }
+        .tabbtn.active { color:#fff; background:var(--accent); border-color:var(--accent); }
+        .tabpane { display:none; }
+        .tabpane.active { display:block; }
+        .api-row { border:1px solid var(--border); border-radius:11px; padding:12px 14px; background:#fbfcfe; margin-bottom:10px; }
+        .api-row .t { font-size:14.5px; font-weight:700; margin-bottom:4px; }
+        .api-row .ep { font-size:12px; color:var(--muted); margin-bottom:6px; }
+        .api-row .st { font-size:13px; color:var(--txt); line-height:1.7; }
+        .api-row .st b.bad { color:var(--danger); }
+        .api-badge { display:inline-block; font-size:12px; font-weight:700; padding:2px 10px; border-radius:10px; margin-left:8px; vertical-align:middle; }
+        .api-badge.ok { background:#dcfce7; color:#15803d; }
+        .api-badge.bad { background:var(--danger-soft); color:var(--danger); }
+        .api-badge.idle { background:var(--line); color:var(--muted); }
+        .period-item { border:1px solid var(--border); border-radius:11px; padding:12px; background:#fbfcfe; display:flex; flex-direction:column; gap:10px; }
+        .period-item .pname { width:100%; padding:9px 11px; font-size:14.5px; border:1px solid #d5dae3; border-radius:8px; background:#fff; color:var(--txt); }
+        .period-item .pname:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .period-item .ptimes { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+        .period-item .ptimes input[type=time] { padding:7px 9px; font-size:13.5px; border:1px solid #d5dae3; border-radius:8px; background:#fff; color:var(--txt); }
+        .period-item .ptimes input[type=time]:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .period-item .ptimes .dash { margin:0 2px; }
+        .period-item .ptimes .rmb { margin-left:auto; }
+        .drag-handle { cursor:grab; color:var(--muted); font-size:16px; line-height:1; flex:0 0 auto; padding:10px 8px; margin:-4px -4px; user-select:none; -webkit-user-select:none; touch-action:none; }
+        .drag-handle:active { cursor:grabbing; }
+        .item-time-input { padding:6px 8px; font-size:13px; border:1px solid #d5dae3; border-radius:8px; background:#fff; color:var(--txt); flex:0 0 auto; min-width:0; }
+        .item-time-input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .mv { flex:0 0 auto; width:30px; height:30px; line-height:28px; text-align:center; font-size:15px; color:var(--muted); background:#fff; border:1px solid var(--border); border-radius:8px; cursor:pointer; user-select:none; -webkit-user-select:none; }
+        .mv:active { background:var(--accent-soft); color:var(--accent); }
+        .item.drag-over { border-color:var(--accent); background:var(--accent-soft); box-shadow:0 0 0 2px var(--accent-soft); }
+        .item.dragging { opacity:.4; }
+        .filter-bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+        .filter-chip { padding:5px 12px; font-size:13px; font-weight:600; color:var(--muted); background:#fff; border:1px solid var(--border); border-radius:20px; cursor:pointer; transition:.15s; white-space:nowrap; }
+        .filter-chip:hover { border-color:#c3d4ff; color:var(--accent); }
+        .filter-chip.active { color:#fff; background:var(--accent); border-color:var(--accent); }
+        .savebar { margin-top:16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+        .save-btn { padding:12px 26px; font-size:15px; font-weight:700; color:#fff; background:var(--accent); border:none; border-radius:10px; cursor:pointer; }
+        .save-btn:hover { background:var(--accent-d); }
+        .save-msg { font-size:14px; color:#16a34a; font-weight:600; min-height:18px; }
+        input[type=checkbox] { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; }
+        @media (min-width: 900px) { .cols { grid-template-columns: 350px 1fr; } }
+        @media (max-width: 520px) { .row2 { grid-template-columns: 1fr; } .brand p { display:none; } }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <header class="top">
+            <div class="brand">
+                <h1>看板后台管理</h1>
+                <p>各面板可单独保存，点 ? 查看说明</p>
+            </div>
+            <a href="/logout" class="logout-btn">退出登录</a>
+        </header>
+
+        <nav class="tabnav" id="tabnav">
+            <a href="#basic" class="tabbtn active" data-tab="basic">基本</a>
+            <a href="#weather" class="tabbtn" data-tab="weather">天气</a>
+            <a href="#world" class="tabbtn" data-tab="world">世界时间</a>
+            <a href="#calendar" class="tabbtn" data-tab="calendar">万年历</a>
+            <a href="#todo" class="tabbtn" data-tab="todo">时段与待办</a>
+            <a href="#api" class="tabbtn" data-tab="api">数据源</a>
+        </nav>
+
+        <div class="tabpane active" id="pane_basic">
+        <div class="stack">
+            <section class="card">
+                <h3><span class="dot"></span>看板设置<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_basic', this)" title="设置说明">?</button></h3>
+                <p class="sub">Kindle 自动刷新间隔与省电设置；默认屏幕方向用于锁屏重启后丢失页面状态时。</p>
+                <div class="help-box" id="h_basic" style="display:none;">Kindle 打开页面后按间隔自动整页刷新（仅「通用 / 最强体验」两档生效，极致省电档用下面的专属间隔；填 0 = 永不自动刷新，只能手动刷）。省电模式：最强体验=心跳 15s+保活 30s（最耗电）；通用=心跳降到 60s、去保活（肉眼无差别）；极致省电=不心跳不保活，屏上只剩分钟走时、按更长间隔整页刷新。看板页脚有「刷新」「横版」按钮：横版=四态循环（竖版→横版90°→倒立180°→横版270°→竖版），状态记在地址栏 ?land=0/1/2/3 参数，整页刷新后保持。Kindle 长时间锁屏后可能自动重启、浏览器丢失 ?land= 参数，此时按「默认屏幕方向」渲染；页脚「横版」按钮手动切过之后以地址栏参数为准，不再回落默认。下方「开放的方向」决定页脚「屏幕方向」按钮的循环范围（只勾"正放 + 倒立"就在两者间切换）；默认方向若不在开放范围内，会自动调整为第一个开放方向。</div>
+                <div class="row2">
+                    <div class="field">
+                        <label>Kindle 省电模式</label>
+                        <select id="power_mode" onchange="syncPowerMode()">
+                            <option value="best"{% if data['power_mode'] == 'best' %} selected{% endif %}>最强体验</option>
+                            <option value="normal"{% if data['power_mode'] == 'normal' %} selected{% endif %}>通用</option>
+                            <option value="eco"{% if data['power_mode'] == 'eco' %} selected{% endif %}>极致省电</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>自动刷新间隔（秒）</label>
+                        <input type="number" id="refresh_rate" value="{{ data['refresh_rate'] }}" min="5" max="300">
+                    </div>
+                </div>
+                <div class="row2">
+                    <div class="field">
+                        <label>默认屏幕方向</label>
+                        <select id="default_land">
+                            <option value="0"{% if data.get('default_land', 0) == 0 %} selected{% endif %}>竖版（正放）</option>
+                            <option value="1"{% if data.get('default_land', 0) == 1 %} selected{% endif %}>横版 90°</option>
+                            <option value="2"{% if data.get('default_land', 0) == 2 %} selected{% endif %}>倒立 180°</option>
+                            <option value="3"{% if data.get('default_land', 0) == 3 %} selected{% endif %}>横版 270°</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>开放的方向（看板页脚「屏幕方向」按钮只在这些模式间切换；至少保留一个）</label>
+                    <div class="land-modes">
+                        <label class="lm-opt"><input type="checkbox" class="lm" value="0"{% if 0 in data.get('land_modes', [0, 1, 2, 3]) %} checked{% endif %}>正放</label>
+                        <label class="lm-opt"><input type="checkbox" class="lm" value="1"{% if 1 in data.get('land_modes', [0, 1, 2, 3]) %} checked{% endif %}>横版 90°</label>
+                        <label class="lm-opt"><input type="checkbox" class="lm" value="2"{% if 2 in data.get('land_modes', [0, 1, 2, 3]) %} checked{% endif %}>倒立 180°</label>
+                        <label class="lm-opt"><input type="checkbox" class="lm" value="3"{% if 3 in data.get('land_modes', [0, 1, 2, 3]) %} checked{% endif %}>横版 270°</label>
+                    </div>
+                </div>
+                <div class="row2" id="ecoRow" style="display:none;">
+                    <div class="field">
+                        <label>极致省电档刷新间隔（秒）</label>
+                        <input type="number" id="eco_refresh_rate" value="{{ data['eco_refresh_rate'] }}" min="0" max="3600">
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h3><span class="dot"></span>显示内容<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_disp', this)" title="设置说明">?</button></h3>
+                <p class="sub">选择看板要显示哪些区块。</p>
+                <div class="help-box" id="h_disp" style="display:none;">关闭后看板对应区块不显示；保存后 Kindle 下次整页刷新生效。</div>
+                <div class="field">
+                    <div id="dispToggles" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+                </div>
+            </section>
+        </div>
+        </div>
+
+        <div class="tabpane" id="pane_weather">
+        <div class="stack">
+            <section class="card">
+                <h3><span class="dot"></span>天气<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_weather', this)" title="设置说明">?</button></h3>
+                <p class="sub">设置看板右上角显示的天气地区。</p>
+                <div class="help-box" id="h_weather" style="display:none;">数据来自 open-meteo（免费、无需 key），半小时更新一次；断网退回上次缓存，完全取不到就不显示这块。<b>先搜地区</b>，从结果里点一条，名称与经纬度自动填好；显示地区留空 = 看板不显示天气。</div>
+                <div class="field">
+                    <label>① 搜索地区</label>
+                    <div class="geo-search">
+                        <input type="text" id="geo_q" placeholder="例如：深圳、北京 朝阳、杭州西湖"
+                               onkeydown="if (event.key === 'Enter') { event.preventDefault(); searchGeo(); }">
+                        <button type="button" class="btn-add" onclick="searchGeo()">搜索</button>
+                    </div>
+                    <div class="geo-list" id="geo_list"></div>
+                    <div class="geo-msg" id="geo_msg">可以只搜到城市，也可以带区县，例如「北京 朝阳」。</div>
+                </div>
+                <div class="field">
+                    <label>② 显示地区</label>
+                    <input type="text" id="w_location" placeholder="例如：深圳" value="{{ (data.get('weather') or {}).get('location', '') }}">
+                </div>
+                <div class="row2">
+                    <div class="field">
+                        <label>③ 纬度</label>
+                        <input type="text" id="w_lat" placeholder="例如：22.54" value="{{ (data.get('weather') or {}).get('lat', '') }}">
+                    </div>
+                    <div class="field">
+                        <label>④ 经度</label>
+                        <input type="text" id="w_lon" placeholder="例如：114.06" value="{{ (data.get('weather') or {}).get('lon', '') }}">
+                </div>
+            </section>
+        </div>
+        </div>
+
+        <div class="tabpane" id="pane_world">
+        <div class="stack">
+            <section class="card">
+                <h3><span class="dot"></span>世界时间<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_world', this)" title="设置说明">?</button></h3>
+                <p class="sub">看板世界时间面板显示的城市。</p>
+                <div class="help-box" id="h_world" style="display:none;">看板左上角点时钟展开世界时间。家=北京始终显示（随时钟时区）。搜索添加：输入城市名，从结果点一条即加入，上限 12 个，看板按添加顺序排列。结果右侧是该城市时区；无时区的城市按经度估算，夏令时期间可能差 1 小时。</div>
+                <div class="field">
+                    <label>① 搜索城市</label>
+                    <div class="geo-search">
+                        <input type="text" id="city_q" placeholder="例如：巴黎、纽约、新加坡"
+                               onkeydown="if (event.key === 'Enter') { event.preventDefault(); searchCity(); }">
+                        <button type="button" class="btn-add" onclick="searchCity()">搜索</button>
+                    </div>
+                    <div class="geo-list" id="city_list"></div>
+                    <div class="geo-msg" id="city_msg">输入城市名搜索；加入后显示在 ②，点 × 移除。</div>
+                </div>
+                <div class="field">
+                    <label>② 要显示的城市</label>
+                    <div id="cityPills" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+                </div>
+            </section>
+        </div>
+        </div>
+
+        <div class="tabpane" id="pane_calendar">
+        <div class="stack">
+            <section class="card">
+                <h3><span class="dot"></span>万年历管理<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_cal', this)" title="设置说明">?</button></h3>
+                <p class="sub">重要日子会标记在万年历格子上。</p>
+                <div class="help-box" id="h_cal" style="display:none;">万年历吉凶为本地离线计算（干支纪日+建除十二值日，不联网、永不失效）。日期可以控件选也可以直接手写（年-月-日）。选 <b>农历</b> 的日子每年自动换算成当年公历日再标记（如农历八月十五=当年中秋）；公历日子可选 <b>每年 / 每月</b>：每年=每年这个月日，每月=每月这一天（如每月 5 号）。</div>
+                <div class="list" id="specialDates"></div>
+                <button type="button" class="btn-add" onclick="addSpecialDate()">+ 添加重要日子</button>
+            </section>
+        </div>
+        </div>
+
+        <div class="tabpane" id="pane_todo">
+            <section class="card" style="margin-bottom: 16px;">
+                <h3><span class="dot"></span>显示顺序<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_seq', this)" title="设置说明">?</button></h3>
+                <p class="sub">控制看板待办列表的顺序与序号显示。</p>
+                <div class="help-box" id="h_seq" style="display:none;">「随机顺序」：看板每天打乱一次待办顺序，同一天内不变。「显示原顺序序号」：每条待办用英文方框标出它在原顺序中的位置（one、two、three…），随机打乱时序号依然显示真实位置；序号位置可选（紧接事项后面 / 事项前面 / 每行末尾固定）。两种可分别开启，也可只开其一；保存后看板下次刷新生效。</div>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <label class="pcheck-pill"><input type="checkbox" style="display:none" id="shuffle_items" onchange="pillDispToggle(this, 'shuffle_items')">随机顺序</label>
+                    <label class="pcheck-pill"><input type="checkbox" style="display:none" id="show_seq" onchange="pillDispToggle(this, 'show_seq')">显示原顺序序号</label>
+                </div>
+                <div style="margin-top: 10px;">
+                    <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:6px;">序号位置</label>
+                    <select id="seq_pos" style="max-width:300px; padding:8px 10px; font-size:14px; border:1px solid #d5dae3; border-radius:8px; background:#fff;">
+                        <option value="after"{% if data.get('seq_pos', 'after') == 'after' %} selected{% endif %}>紧接事项后面</option>
+                        <option value="before"{% if data.get('seq_pos', 'after') == 'before' %} selected{% endif %}>事项前面</option>
+                        <option value="end"{% if data.get('seq_pos', 'after') == 'end' %} selected{% endif %}>每行末尾固定</option>
+                    </select>
+                </div>
+            </section>
+            <div class="cols">
+                <section class="card">
+                    <h3><span class="dot"></span>显示时段<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_period', this)" title="设置说明">?</button></h3>
+                    <p class="sub">可新增多个时段。</p>
+                    <div class="help-box" id="h_period" style="display:none;">待办只在勾选的时段内显示；不勾选任何时段 = 全天显示。删除时段后，引用它的待办会自动回到全天显示。</div>
+                    <div class="list" id="periods"></div>
+                    <button type="button" class="btn-add" onclick="addPeriod()">+ 添加时段</button>
+                </section>
+
+                <section class="card">
+                    <h3><span class="dot"></span>待办事项<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_todo', this)" title="设置说明">?</button></h3>
+                    <p class="sub">逐条管理待办。</p>
+                    <div class="help-box" id="h_todo" style="display:none;">不勾选任何时段 = 全天显示；勾选一个或多个时段 = 仅在这些时段内显示。拖动条目可调整顺序。</div>
+                    <div class="filter-bar" id="filterBar"></div>
+                    <div class="list" id="items"></div>
+                    <button type="button" class="btn-add" onclick="addItem()">+ 添加事项</button>
+                </section>
+            </div>
+        </div>
+
+        <div class="tabpane" id="pane_api">
+        <div class="stack">
+            <section class="card">
+                <h3><span class="dot"></span>数据源<button type="button" class="help-btn" onclick="toggleHelp('h_api', this)" title="设置说明">?</button></h3>
+                <p class="sub">各数据接口的抓取状态，每 30 秒自动刷新。</p>
+                <div class="help-box" id="h_api" style="display:none;">看板页面从不直接联网：后台线程按各来源的 TTL 抓取并写本地缓存，页面只读缓存；失败后退避 10 分钟自动重试。这里可看最近成功/失败时间与错误，判断接口是否可用。</div>
+                <div id="apiList"></div>
+            </section>
+        </div>
+        </div>
+
+        <div class="savebar">
+            <button type="button" class="save-btn" onclick="saveAll()">保存并更新</button>
+            <span class="save-msg" id="saveMsg"></span>
+        </div>
+    </div>
+
+    <script>
+      var state = {{ data_json | tojson }};
+
+      function esc(s) {
+        return (s == null ? '' : String(s))
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      function genId(prefix) {
+        return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      }
+
+      function freqOptions(cur) {
+        cur = cur || 'daily';
+        var html = '<option value="daily"' + (cur === 'daily' ? ' selected' : '') + '>每天</option>';
+        var days = ['一', '二', '三', '四', '五', '六', '日'];
+        var week = '';
+        for (var d = 1; d <= 7; d++) {
+          var v = 'weekly:' + d;
+          week += '<option value="' + v + '"' + (cur === v ? ' selected' : '') + '>每' + days[d - 1] + '</option>';
+        }
+        html += '<optgroup label="每周">' + week + '</optgroup>';
+        var mon = '';
+        for (var m = 1; m <= 28; m++) {
+          var mv = 'monthly:' + m;
+          mon += '<option value="' + mv + '"' + (cur === mv ? ' selected' : '') + '>每月' + m + '日</option>';
+        }
+        html += '<optgroup label="每月">' + mon + '</optgroup>';
+        return html;
+      }
+
+      function renderPeriods() {
+        var el = document.getElementById('periods');
+        el.innerHTML = '';
+        state.periods.forEach(function (p, i) {
+          var row = document.createElement('div');
+          row.className = 'period-item';
+          row.innerHTML =
+            '<input class="pname" type="text" placeholder="时段名称" value="' + esc(p.name) + '" oninput="state.periods[' + i + '].name=this.value">' +
+            '<div class="ptimes">' +
+              '<input type="time" value="' + esc(p.start) + '" onchange="state.periods[' + i + '].start=this.value">' +
+              '<span class="dash">至</span>' +
+              '<input type="time" value="' + esc(p.end) + '" onchange="state.periods[' + i + '].end=this.value">' +
+              '<button type="button" class="rmb" onclick="delPeriod(' + i + ')">删除</button>' +
+            '</div>';
+          el.appendChild(row);
+        });
+        if (state.periods.length === 0) {
+          el.innerHTML = '<div class="muted">暂无时段，所有待办默认全天显示。</div>';
+        }
+      }
+
+      var activeFilter = null;
+      var dragIdx = -1;
+
+      function renderFilter() {
+        var el = document.getElementById('filterBar');
+        if (!el) return;
+        var html = '<span class="filter-chip' + (activeFilter === null ? ' active' : '') + '" onclick="setFilter(null)">全部</span>';
+        state.periods.forEach(function (p, pi) {
+          html += '<span class="filter-chip' + (activeFilter === p.id ? ' active' : '') + '" onclick="filterToIndex(' + pi + ')">' + esc(p.name || '未命名') + '</span>';
+        });
+        el.innerHTML = html;
+      }
+
+      function filterToIndex(pi) {
+        setFilter(state.periods[pi].id);
+      }
+
+      function setFilter(id) {
+        activeFilter = id;
+        renderFilter();
+        renderItems();
+      }
+
+      function renderItems() {
+        var el = document.getElementById('items');
+        el.innerHTML = '';
+        var shown = state.items.map(function (it, i) { return { it: it, i: i }; });
+        if (activeFilter !== null) {
+          shown = shown.filter(function (x) { return x.it.period_ids.indexOf(activeFilter) >= 0; });
+        }
+        shown.forEach(function (x) {
+          var it = x.it, i = x.i;
+          var checks = state.periods.map(function (p, pi) {
+            var on = it.period_ids.indexOf(p.id) >= 0;
+            return '<span class="pcheck-pill' + (on ? ' on' : '') + '" onclick="togglePill(' + i + ',' + pi + ')">' + esc(p.name) + '</span>';
+          }).join('');
+          var row = document.createElement('div');
+          row.className = 'item';
+          row.setAttribute('draggable', 'true');
+          row.setAttribute('data-idx', i);
+          row.innerHTML =
+            '<div class="main">' +
+              '<span class="drag-handle" title="拖动排序（手机：按住不动再拖）">&#x2837;</span>' +
+              '<input class="grow" type="text" placeholder="事项内容" value="' + esc(it.text) + '" oninput="state.items[' + i + '].text=this.value">' +
+              '<select class="freq-select" onchange="state.items[' + i + '].freq=this.value">' + freqOptions(it.freq) + '</select>' +
+              '<button type="button" class="rmb" onclick="delItem(' + i + ')">删除</button>' +
+            '</div>' +
+            '<div class="pchecks">' +
+              '<input class="item-time-input" type="time" title="时间（可选，填了显示在事项副标题前）" value="' + esc(it.time || '') + '" onchange="state.items[' + i + '].time=this.value">' +
+              (checks || '<span class="muted">不勾选时段 = 全天显示</span>') +
+              '<span class="mv" title="上移" onclick="moveItem(' + i + ',-1)">&#x2191;</span>' +
+              '<span class="mv" title="下移" onclick="moveItem(' + i + ',1)">&#x2193;</span>' +
+            '</div>';
+          row.addEventListener('dragstart', function (e) {
+            dragIdx = i;
+            row.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+          });
+          row.addEventListener('dragend', function () {
+            row.classList.remove('dragging');
+            var all = el.querySelectorAll('.item');
+            for (var k = 0; k < all.length; k++) all[k].classList.remove('drag-over');
+          });
+          row.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            row.classList.add('drag-over');
+          });
+          row.addEventListener('dragleave', function () {
+            row.classList.remove('drag-over');
+          });
+          row.addEventListener('drop', function (e) {
+            e.preventDefault();
+            row.classList.remove('drag-over');
+            var targetIdx = parseInt(row.getAttribute('data-idx'), 10);
+            if (dragIdx === -1 || targetIdx === -1 || dragIdx === targetIdx) return;
+            var tmp = state.items[dragIdx];
+            state.items.splice(dragIdx, 1);
+            state.items.splice(targetIdx, 0, tmp);
+            dragIdx = -1;
+            renderItems();
+          });
+          // 触屏通路（手机浏览器不触发 HTML5 DnD，见 bindTouchDrag 注释）
+          var handle = row.querySelector('.drag-handle');
+          if (handle) bindTouchDrag(handle, row, i);
+          el.appendChild(row);
+        });
+        if (shown.length === 0) {
+          el.innerHTML = '<div class="muted">' + (state.items.length === 0 ? '暂无事项，点击"添加事项"新增。' : '该时段下没有事项。') + '</div>';
+        }
+      }
+
+      function addPeriod() {
+        state.periods.push({ id: genId('p'), name: '', start: '', end: '' });
+        renderPeriods();
+        renderFilter();
+        renderItems();
+      }
+
+      function delPeriod(i) {
+        var removedId = state.periods[i].id;
+        state.periods.splice(i, 1);
+        state.items.forEach(function (it) {
+          var ix = it.period_ids.indexOf(removedId);
+          if (ix >= 0) it.period_ids.splice(ix, 1);
+        });
+        if (activeFilter === removedId) activeFilter = null;
+        renderPeriods();
+        renderFilter();
+        renderItems();
+      }
+
+      function addItem() {
+        state.items.push({ id: genId('i'), text: '', time: '', checked: false, is_daily: true, freq: 'daily', period_ids: [] });
+        renderItems();
+      }
+
+      function delItem(i) {
+        state.items.splice(i, 1);
+        renderItems();
+      }
+
+      function moveItem(i, dir) {
+        // ↑↓ 按钮移动：触屏拖动不好用时的 100% 可靠保底
+        var j = i + dir;
+        if (j < 0 || j >= state.items.length) return;
+        var tmp = state.items[i];
+        state.items[i] = state.items[j];
+        state.items[j] = tmp;
+        renderItems();
+      }
+
+      // ----------------- 移动端触控拖动 -----------------
+      // HTML5 Drag API（dragstart/dragover/drop）在手机浏览器上基本不触发，
+      // 所以触屏走自己的通路：按住手柄 250ms 进入拖动态（震动反馈），
+      // 拖动中 elementFromPoint 找落点行高亮，松手完成移动。
+      // 长按等待期手指移动超过 10px 视为滚动页面的意图，自动取消拖动。
+      var touchDrag = null;
+
+      function _touchDropTarget(t) {
+        var el = document.elementFromPoint(t.clientX, t.clientY);
+        return el && el.closest ? el.closest('.item') : null;
+      }
+
+      function _touchClearHighlight() {
+        var all = document.querySelectorAll('#items .item');
+        for (var k = 0; k < all.length; k++) all[k].classList.remove('drag-over');
+      }
+
+      function bindTouchDrag(handle, row, i) {
+        handle.addEventListener('touchstart', function (e) {
+          if (e.touches.length !== 1) { touchDrag = null; return; }
+          var t = e.touches[0];
+          touchDrag = { idx: i, startX: t.clientX, startY: t.clientY,
+                        active: false, rowEl: row, timer: null };
+          touchDrag.timer = setTimeout(function () {
+            if (!touchDrag) return;
+            touchDrag.active = true;
+            touchDrag.rowEl.classList.add('dragging');
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e2) {} }
+          }, 250);
+        }, { passive: true });
+        handle.addEventListener('touchmove', function (e) {
+          if (!touchDrag) return;
+          var t = e.touches[0];
+          if (!touchDrag.active) {
+            if (Math.abs(t.clientX - touchDrag.startX) > 10 ||
+                Math.abs(t.clientY - touchDrag.startY) > 10) {
+              clearTimeout(touchDrag.timer);   // 用户在滚动页面，不是要拖动
+              touchDrag = null;
+            }
+            return;
+          }
+          e.preventDefault();                  // 拖动态：阻止页面跟着滚
+          _touchClearHighlight();
+          var target = _touchDropTarget(t);
+          if (target && target !== touchDrag.rowEl) target.classList.add('drag-over');
+        }, { passive: false });
+        handle.addEventListener('touchend', function (e) {
+          if (!touchDrag) return;
+          clearTimeout(touchDrag.timer);
+          if (touchDrag.active) {
+            _touchClearHighlight();
+            touchDrag.rowEl.classList.remove('dragging');
+            var target = _touchDropTarget(e.changedTouches[0]);
+            var targetIdx = target ? parseInt(target.getAttribute('data-idx'), 10) : -1;
+            if (!isNaN(targetIdx) && targetIdx >= 0 && targetIdx !== touchDrag.idx) {
+              var tmp = state.items[touchDrag.idx];
+              state.items.splice(touchDrag.idx, 1);
+              state.items.splice(targetIdx, 0, tmp);
+              renderItems();
+            }
+            e.preventDefault();                // 拖完别再触发 click（防误删/误选）
+          }
+          touchDrag = null;
+        });
+        handle.addEventListener('touchcancel', function () {
+          if (!touchDrag) return;
+          clearTimeout(touchDrag.timer);
+          if (touchDrag.active) {
+            _touchClearHighlight();
+            touchDrag.rowEl.classList.remove('dragging');
+          }
+          touchDrag = null;
+        });
+      }
+
+      function togglePill(i, pi) {
+        var id = state.periods[pi].id;
+        var arr = state.items[i].period_ids;
+        var ix = arr.indexOf(id);
+        if (ix >= 0) { arr.splice(ix, 1); } else { arr.push(id); }
+        renderItems();
+      }
+
+      var geoResults = [];
+
+      function searchGeo() {
+        var qEl = document.getElementById('geo_q');
+        var list = document.getElementById('geo_list');
+        var msg = document.getElementById('geo_msg');
+        var q = ((qEl && qEl.value) || '').trim();
+        if (!q) {
+          if (list) list.style.display = 'none';
+          if (msg) msg.textContent = '先输入地名，例如「深圳」或「北京 朝阳」。';
+          return;
+        }
+        if (msg) msg.textContent = '搜索中...';
+        if (list) list.style.display = 'none';
+        fetch('/api/geocode?q=' + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            geoResults = (d && d.results) || [];
+            if (!geoResults.length) {
+              if (msg) msg.textContent = '没搜到「' + q + '」（可能断网或名字不对），可以直接手工填下面的名称与经纬度。';
+              return;
+            }
+            var html = '';
+            for (var i = 0; i < geoResults.length; i++) {
+              var it = geoResults[i];
+              var sub = [it.admin, it.country].filter(function (s) { return !!s; }).join(' · ');
+              html += '<div class="geo-item" onclick="pickGeo(' + i + ')">'
+                    + '<span>' + esc(it.label)
+                    + (sub ? '<span class="g-admin">' + esc(sub) + '</span>' : '')
+                    + '</span>'
+                    + '<span class="g-coord">' + esc(String(it.lat)) + ', ' + esc(String(it.lon)) + '</span>'
+                    + '</div>';
+            }
+            list.innerHTML = html;
+            list.style.display = 'block';
+            if (msg) msg.textContent = '共 ' + geoResults.length + ' 条，点一条填进去：';
+          })
+          .catch(function () {
+            if (msg) msg.textContent = '搜索失败：服务器连不上 open-meteo。可以手工填下面的名称与经纬度。';
+          });
+      }
+
+      function pickGeo(i) {
+        var it = geoResults[i];
+        if (!it) return;
+        document.getElementById('w_location').value = it.label;
+        document.getElementById('w_lat').value = it.lat;
+        document.getElementById('w_lon').value = it.lon;
+        document.getElementById('geo_list').style.display = 'none';
+        document.getElementById('geo_msg').textContent =
+          '已选中「' + it.label + '」，经纬度已自动填好，记得点「保存全部」。';
+      }
+
+      // ---- Tab 导航：hash 持久（刷新/分享深链保持当前页签）；state 全局共享，保存一次全量生效 ----
+      var TABS = ['basic', 'weather', 'world', 'calendar', 'todo', 'api'];
+      function showTab(name) {
+        if (TABS.indexOf(name) < 0) { name = 'basic'; }
+        var btns = document.querySelectorAll('.tabbtn');
+        for (var i = 0; i < btns.length; i++) {
+          btns[i].className = 'tabbtn' + (btns[i].getAttribute('data-tab') === name ? ' active' : '');
+        }
+        var panes = document.querySelectorAll('.tabpane');
+        for (var j = 0; j < panes.length; j++) {
+          panes[j].className = 'tabpane' + (panes[j].id === 'pane_' + name ? ' active' : '');
+        }
+        if (location.hash !== '#' + name) {
+          try { history.replaceState(null, '', '#' + name); } catch (e) { }
+        }
+      }
+      window.addEventListener('hashchange', function () { showTab(location.hash.replace('#', '')); });
+
+      // ---- 显示内容 / 世界时间（搜索添加）/ 万年历重要日子（data.json 已有这些字段，PC 端只管表单） ----
+      var DISP_DEFS = [
+        ['show_weather', '天气块'],
+        ['show_motto', '名言（页脚）'],
+        ['show_lunar', '农历行'],
+      ];
+      function renderDisp() {
+        var el = document.getElementById('dispToggles');
+        var d = state.display || {};
+        el.innerHTML = DISP_DEFS.map(function (df) {
+          var on = d[df[0]] !== false;
+          return '<label class="pcheck-pill' + (on ? ' on' : '') + '">' +
+            '<input type="checkbox" style="display:none" ' + (on ? 'checked' : '') +
+            ' data-k="' + df[0] + '" onchange="dispToggle(this)">' +
+            df[1] + '</label>';
+        }).join('');
+      }
+      function dispToggle(el) {
+        var key = el.getAttribute('data-k');
+        state.display = state.display || {};
+        state.display[key] = el.checked;
+        el.closest('.pcheck-pill').className = 'pcheck-pill' + (el.checked ? ' on' : '');
+      }
+      // 显示顺序开关（"时段与待办"页签顶部的"显示顺序"面板）：都存 display 字典
+      function pillDispToggle(el, key) {
+        state.display = state.display || {};
+        state.display[key] = el.checked;
+        el.closest('.pcheck-pill').className = 'pcheck-pill' + (el.checked ? ' on' : '');
+      }
+      function renderDispPills() {
+        ['shuffle_items', 'show_seq'].forEach(function (key) {
+          var el = document.getElementById(key);
+          if (!el) return;
+          var on = !!(state.display && state.display[key]);
+          el.checked = on;
+          el.closest('.pcheck-pill').className = 'pcheck-pill' + (on ? ' on' : '');
+        });
+      }
+      function cityName(c) { return (c && c.name) || String(c || ''); }
+      function renderCities() {
+        var el = document.getElementById('cityPills');
+        var sel = state.world_cities || [];
+        if (!sel.length) {
+          el.innerHTML = '<span class="muted">还没有城市。在上方搜索添加（家=北京恒显示）。</span>';
+          return;
+        }
+        el.innerHTML = sel.map(function (c, i) {
+          return '<label class="pcheck-pill on">' +
+            esc(cityName(c)) +
+            '<span class="city-x" title="移除该城市" onclick="delCity(' + i + ');return false;">×</span>' +
+            '</label>';
+        }).join('');
+      }
+      function delCity(i) {
+        state.world_cities = state.world_cities || [];
+        if (i >= 0 && i < state.world_cities.length) {
+          state.world_cities.splice(i, 1);
+          renderCities();
+        }
+      }
+      var cityResults = [];
+      function searchCity() {
+        var qEl = document.getElementById('city_q');
+        var list = document.getElementById('city_list');
+        var msg = document.getElementById('city_msg');
+        var q = ((qEl && qEl.value) || '').trim();
+        if (!q) {
+          if (list) list.style.display = 'none';
+          if (msg) msg.textContent = '先输入城市名，例如「巴黎」或「纽约」。';
+          return;
+        }
+        if (msg) msg.textContent = '搜索中...';
+        if (list) list.style.display = 'none';
+        fetch('/api/geocode?q=' + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            cityResults = (d && d.results) || [];
+            if (!cityResults.length) {
+              if (msg) msg.textContent = '没搜到「' + q + '」（可能断网或名字不对），换个名字试试，例如中文城市名。';
+              return;
+            }
+            var html = '';
+            for (var i = 0; i < cityResults.length; i++) {
+              var it = cityResults[i];
+              var sub = [it.admin, it.country].filter(function (s) { return !!s; }).join(' · ');
+              html += '<div class="geo-item" onclick="pickCity(' + i + ')">'
+                    + '<span>' + esc(it.label)
+                    + (sub ? '<span class="g-admin">' + esc(sub) + '</span>' : '')
+                    + '</span>'
+                    + '<span class="g-coord">' + esc(it.tz || '（无时区，按经度估算）') + '</span>'
+                    + '</div>';
+            }
+            list.innerHTML = html;
+            list.style.display = 'block';
+            if (msg) msg.textContent = '共 ' + cityResults.length + ' 条，点一条加入：';
+          })
+          .catch(function () {
+            if (msg) msg.textContent = '搜索失败：服务器连不上地名接口，稍后再试。';
+          });
+      }
+      function pickCity(i) {
+        var it = cityResults[i];
+        if (!it) { return; }
+        var nm = it.label || it.name || '';
+        var msg = document.getElementById('city_msg');
+        state.world_cities = state.world_cities || [];
+        for (var j = 0; j < state.world_cities.length; j++) {
+          if (cityName(state.world_cities[j]) === nm) {
+            msg.textContent = '「' + nm + '」已在列表里，不用重复添加。';
+            return;
+          }
+        }
+        if (state.world_cities.length >= 12) {
+          msg.textContent = '最多 12 个城市，先移除一些再添加。';
+          return;
+        }
+        state.world_cities.push({ name: nm, tz: it.tz || '', off: (it.off != null ? it.off : null), lon: it.lon });
+        document.getElementById('city_list').style.display = 'none';
+        msg.textContent = '已添加「' + nm + '」（时区：' + (it.tz || '按经度估算') + '），记得点「保存全部」生效。';
+        renderCities();
+      }
+      function renderSpecialDates() {
+        var el = document.getElementById('specialDates');
+        el.innerHTML = '';
+        state.special_dates = state.special_dates || [];
+        state.special_dates.forEach(function (b, i) {
+          var row = document.createElement('div');
+          row.className = 'item';
+          var lunar = b.cal === 'lunar';
+          row.innerHTML =
+            '<div class="main">' +
+              '<input class="grow" type="text" placeholder="名字（如：妈妈生日、结婚纪念日）" value="' + esc(b.name) + '" oninput="state.special_dates[' + i + '].name=this.value">' +
+              '<input class="sdate" type="date" value="' + esc(b.date || '') + '" oninput="state.special_dates[' + i + '].date=this.value">' +
+              '<select class="scal" title="公历/农历" onchange="state.special_dates[' + i + '].cal=this.value;renderSpecialDates()">' +
+                '<option value="solar"' + (lunar ? '' : ' selected') + '>公历</option>' +
+                '<option value="lunar"' + (lunar ? ' selected' : '') + '>农历</option>' +
+              '</select>' +
+              (lunar ? ''
+                : '<select class="sfreq" title="标记频率" onchange="state.special_dates[' + i + '].freq=this.value">' +
+                  '<option value="yearly"' + ((b.freq || 'yearly') !== 'monthly' ? ' selected' : '') + '>每年</option>' +
+                  '<option value="monthly"' + ((b.freq || 'yearly') === 'monthly' ? ' selected' : '') + '>每月</option>' +
+                '</select>') +
+              (lunar
+                ? '<label class="pleap"><input type="checkbox" ' + (b.leap ? 'checked' : '') +
+                  ' onchange="state.special_dates[' + i + '].leap=this.checked">闰月</label>'
+                : '') +
+              '<button type="button" class="rmb" onclick="delSpecialDate(' + i + ')">删除</button>' +
+            '</div>';
+          el.appendChild(row);
+        });
+        if (state.special_dates.length === 0) {
+          el.innerHTML = '<div class="muted">还没有重要日子。添加后，万年历会在对应日期标记（公历按公历日；农历自动换算成当年公历日）。</div>';
+        }
+      }
+      function addSpecialDate() {
+        state.special_dates = state.special_dates || [];
+        var d = new Date();
+        var iso = d.getFullYear() + '-' + (d.getMonth() < 9 ? '0' : '') + (d.getMonth() + 1) +
+                  '-' + (d.getDate() < 10 ? '0' : '') + d.getDate();
+        state.special_dates.push({ name: '', date: iso, cal: 'solar' });
+        renderSpecialDates();
+      }
+      function delSpecialDate(i) { state.special_dates.splice(i, 1); renderSpecialDates(); }
+
+      // ---- 数据源 tab：每 30 秒轮询 /admin/api_status（PC 端 fetch，与 display 路径无关） ----
+      function fmtTs(ts) {
+        if (!ts) { return '—'; }
+        var d = new Date(ts * 1000);
+        function p(n) { return (n < 10 ? '0' : '') + n; }
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+          ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+      }
+      function renderApi(data) {
+        var el = document.getElementById('apiList');
+        if (!el) { return; }
+        var order = ['weather', 'holiday', 'motto', 'almanac'];
+        var html = '';
+        for (var i = 0; i < order.length; i++) {
+          var key = order[i];
+          var src2 = data.sources[key];
+          if (!src2) { continue; }   // 来源未上线（如 almanac）不显示
+          var st = (data.status || {})[key] || {};
+          var cls = 'idle', label = '未抓取';
+          if (st.last_ok && (!st.last_fail || st.last_ok >= st.last_fail)) { cls = 'ok'; label = '正常'; }
+          else if (st.last_fail) { cls = 'bad'; label = '失败中'; }
+          html += '<div class="api-row">' +
+            '<div class="t">' + esc(src2.title) + '<span class="api-badge ' + cls + '">' + label + '</span></div>' +
+            '<div class="ep">' + esc(src2.endpoint) + '</div>' +
+            '<div class="st">最近成功：<b>' + fmtTs(st.last_ok) + '</b>　最近失败：<b>' + fmtTs(st.last_fail) + '</b><br>' +
+            (st.error ? '最近错误：<b class="bad">' + esc(st.error) + '</b>'
+                      : (st.last_ok ? '' : '尚未有过抓取记录（后台线程 30 秒内会触发）。')) +
+            '</div></div>';
+        }
+        if (data.weather_on === false) {
+          html = '<div class="muted" style="margin-bottom:10px">提示：天气未配置（地区为空），天气来源不会抓取，直到在「天气」页签设置地区。</div>' + html;
+        }
+        el.innerHTML = html;
+      }
+      function pollApi() {
+        fetch('/admin/api_status').then(function (r) {
+          if (!r.ok) { throw new Error('bad status'); }
+          return r.json();
+        }).then(renderApi).catch(function () { });
+      }
+
+      // 省电档下拉：只有选「极致省电」才显示专属刷新间隔输入框
+      function syncPowerMode() {
+        var sel = document.getElementById('power_mode');
+        var row = document.getElementById('ecoRow');
+        if (sel && row) row.style.display = (sel.value === 'eco') ? '' : 'none';
+      }
+      window.syncPowerMode = syncPowerMode;
+      // 卡片头部 ? 按钮：点开/收起本卡片的设置说明（默认收起，不占版面）
+      function toggleHelp(id, btn) {
+        var el = document.getElementById(id);
+        if (!el) { return; }
+        var open = el.style.display === 'block';
+        el.style.display = open ? 'none' : 'block';
+        if (btn) { btn.className = 'help-btn' + (open ? '' : ' on'); }
+      }
+
+
+      function saveAll() {
+        var _eco = parseInt((document.getElementById('eco_refresh_rate') || {}).value, 10);
+        if (isNaN(_eco)) _eco = 300;      // 空着不等于"永不刷新"：回退默认 300s，要停刷得明确填 0
+        var payload = {
+          refresh_rate: parseInt(document.getElementById('refresh_rate').value, 10) || 60,
+          power_mode: (document.getElementById('power_mode') || {}).value || 'normal',
+          eco_refresh_rate: _eco,
+          weather: {
+            location: document.getElementById('w_location').value,
+            lat: document.getElementById('w_lat').value,
+            lon: document.getElementById('w_lon').value
+          },
+          periods: state.periods,
+          items: state.items,
+          world_cities: state.world_cities || [],
+          special_dates: state.special_dates || [],
+          display: state.display || {},
+          default_land: parseInt((document.getElementById('default_land') || {}).value, 10) || 0,
+          land_modes: (function () {
+            var ms = [], cbs = document.querySelectorAll('.land-modes .lm');
+            for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) ms.push(parseInt(cbs[i].value, 10)); }
+            return ms.length ? ms : [0];
+          })(),
+          seq_pos: (document.getElementById('seq_pos') || {}).value || 'after'
+        };
+        var msg = document.getElementById('saveMsg');
+        msg.textContent = '正在保存...';
+        fetch('/admin/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function (r) {
+          if (!r.ok) throw new Error('bad status');
+          msg.textContent = '已保存。';
+          var cs = document.querySelectorAll('.card-save');
+          for (var ci = 0; ci < cs.length; ci++) {
+            (function (b) {
+              b.textContent = '已保存';
+              b.className = 'card-save ok';
+              setTimeout(function () { b.textContent = '保存'; b.className = 'card-save'; }, 1600);
+            })(cs[ci]);
+          }
+        }).catch(function () {
+          msg.style.color = '#dc3545';
+          msg.textContent = '保存失败，请重试。';
+        });
+      }
+
+      window.addEventListener('error', function (e) {
+        var el = document.getElementById('saveMsg');
+        if (el) { el.style.color = '#dc3545'; el.textContent = 'JS 错误: ' + e.message; }
+      });
+
+      try {
+        showTab(location.hash.replace('#', ''));
+        syncPowerMode();
+        renderDisp();
+        renderCities();
+        renderSpecialDates();
+        renderPeriods();
+        renderFilter();
+        renderItems();
+        renderDispPills();
+        var _sp = document.getElementById('seq_pos');
+        if (_sp && state.seq_pos) { _sp.value = state.seq_pos; }
+        pollApi();
+        setInterval(pollApi, 30000);
+      } catch (e) {
+        var el = document.getElementById('saveMsg');
+        if (el) { el.style.color = '#dc3545'; el.textContent = '渲染出错: ' + e; }
+      }
+    </script>
+</body>
+</html>

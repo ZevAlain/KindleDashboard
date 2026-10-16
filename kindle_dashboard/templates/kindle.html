@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html{% if land != "0" %} class="land land-{{ land }}"{% endif %}>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {# 自动整页刷新：由省电档决定周期；eco 档 eco_refresh_rate=0 时整条 meta 不下发
+       （页面彻底静止，只能靠页脚「刷新」按钮或设备唤醒后手动刷新）。#}
+    {% if data['power']['refresh'] > 0 %}<meta http-equiv="refresh" content="{{ data['power']['refresh'] }}">{% endif %}
+    <title>Kindle 看板</title>
+    <style>
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif;
+            background-color: #ffffff;
+            color: #000000;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;             /* 页眉页脚固定，只有中间待办区滚动 */
+        }
+        /* 各栏统一宽度并水平居中 */
+        .pane { width: 100%; max-width: 620px; margin: 0 auto; padding: 0 22px; }
+        /* hero：左时钟 + 中信息列 + 右天气，三列**三等分**（各占内容区 1/3）。
+           关键：三列顶端对齐（align-items: flex-start），中列与右列各 3 行、用固定行高
+           “对表”（28/24/22 = 74），三列总高相等 → 顶边底边同时齐平；列间 24px 留白算在
+           各自那 1/3 里，所以天气列有整整 1/3 宽，才挂得下体感/空气/紫外线三段。
+           用 flex 而不是 grid，老内核也能正常显示。 */
+        .hero-row { display: flex; align-items: flex-start; padding-top: 10px; padding-bottom: 4px; }
+        .hero-row > * { flex: 1 1 0; min-width: 0; }
+        /* 时钟必须跟着列宽缩（JS fitClock，CSS 给个安全的兜底值）：70px 的「20:20」宽 201px，
+           而 Kindle 上 1/3 扣掉 24px 列距只剩 161px，不缩就会压到日期那一列 */
+        .clock { display: block; margin-right: 24px; font-size: 54px; font-weight: 900; letter-spacing: 1px;
+                 line-height: 74px;
+                 text-decoration: none; color: #000000; cursor: pointer; }
+                 /* 行盒钉死 74 = 右侧三行之和，改字号也不会顶高页眉；<a>：点击进世界时区页 */
+        .lunar-line { display: block; text-decoration: none; color: #000000; }   /* <a>：点按进万年历 */
+        .hero-info { margin-right: 24px; }
+        /* 行高表：第1行 28 / 第2行 24 / 第3行 22 = 74 —— 与右列逐行等高、与时钟等高 */
+        .date-line { height: 28px; line-height: 28px; font-size: 19px; font-weight: 600; color: #000000; }
+        .lunar-line { height: 24px; line-height: 24px; font-size: 16px; color: #000000; }
+        .holiday { height: 22px; line-height: 22px; font-size: 16px; color: #000000; }
+        /* 天气块：图标 + 大字温度，下面两行小字（天气与高低温 / 地区·风），右对齐；
+           三段补充信息（体感 / 空气 / 紫外线）用小字挂在各行末尾。
+           整块可点（cursor + onclick）：展开待办区顶部的昨天/今天/明天对比面板 */
+        .weather { display: block; text-align: right; text-decoration: none; color: #000000;
+                   cursor: pointer; }
+        .w-extra { font-size: 13px; font-weight: 700; color: #000000; margin-left: 8px; }   /* 细字重在 e-ink 上抖动发灰，加粗才看得见的黑 */
+        .w-more { font-size: 11px; font-weight: 700; color: #000000; margin-left: 4px; }   /* 小三角：提示这块能点 */
+        .w-top { height: 28px; display: flex; align-items: center; justify-content: flex-end; }
+        .w-icon { width: 28px; height: 28px; display: block; margin-right: 6px; }
+        .w-temp { font-size: 28px; font-weight: 800; line-height: 1; }
+        .w-desc { height: 24px; line-height: 24px; font-size: 15px; font-weight: 700; color: #000000; }
+        .w-loc { height: 22px; line-height: 22px; font-size: 14px; font-weight: 700; color: #000000; }
+        /* 表头各行行高是固定的，一旦折行就会压到下一行：宁可让窄屏时文字挤进右侧 30px 留白 */
+        .hero-info > div, .weather > div { white-space: nowrap; }
+        .scroll {
+            flex: 1 1 auto;               /* 页眉页脚之外的剩余空间都给它 */
+            min-height: 0;                /* 关键：flex 子项默认 min-height:auto 会被内容撑开而不滚动 */
+            overflow-y: auto;
+            overflow-x: hidden;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 6px;
+        }
+        .scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
+        .scroll { scrollbar-width: none; -ms-overflow-style: none; }
+        .more-hint {
+            display: none;                /* 由 JS 按是否还有内容控制 */
+            text-align: center;
+            font-size: 15px;
+            letter-spacing: 1px;
+            color: #000000;
+            padding-top: 7px;
+            padding-bottom: 7px;
+            border-top: 1px dashed #000000;
+        }
+        ul { list-style-type: none; padding: 0; margin: 4px 0 0; }
+        li { margin-bottom: 15px; }
+        /* 昨天/今天/明天 对比面板：点天气块展开时整块替换待办区（待办隐藏、它顶上待办的位置），
+           不是在上面插一块挤压下面。默认 display:none，零常驻空间。
+           字号与灰度全按整页梯度取：标题同 .list-title(18/700/ls2/#333)，行标签同 .plbl(15/#777)，
+           表头 16，数值 17（正好落在 meta16 与 日期19 之间，又不抢事项 27 的主体地位）；
+           昨天/今日/明日三列都纯黑加粗（e-ink 上细字重抖动发灰，今日列不再做淡）。
+           不画边框、不画分隔线——待办区本来就没有，整页只有页脚一条线，保持一致。 */
+        .cmp { display: none; }
+        .cmp-bar { display: flex; justify-content: space-between; align-items: baseline;
+                   font-size: 18px; font-weight: 700; letter-spacing: 2px; color: #000000;
+                   margin: 6px 0 2px; }
+        .panel-close { font-size: 15px; font-weight: 600; letter-spacing: 1px; color: #000000;
+                       text-decoration: none; margin-left: 12px; padding: 6px 0; }   /* 共用"收起"样式：天气对比/世界时间同款纯文字（无框） */
+        .cmp-table { width: 100%; border-collapse: collapse; }
+        .cmp-table th, .cmp-table td { font-size: 17px; text-align: left; padding: 9px 0;
+                                        white-space: nowrap; }
+        .cmp-table th { font-size: 16px; padding-top: 8px; padding-bottom: 4px; }
+        .cmp-table .lab { width: 96px; font-size: 15px; color: #000000; }
+        .cmp-table .tdy { color: #000000; font-weight: 700; }         /* 今日：与明日同粗（细字重 e-ink 发灰看不清） */
+        .cmp-table .tmm { color: #000000; font-weight: 700; }         /* 明日：重点，粗 */
+        .cmp-table .tyst { color: #000000; font-weight: 700; }        /* 昨天：历史对比列，同样加粗（e-ink 细字重发灰） */
+        .cmp-table th.tdy { color: #000000; font-weight: 700; }
+        .cmp-table th.tmm { color: #000000; font-weight: 700; }
+        .cmp-table th.tyst { color: #000000; font-weight: 700; }
+        .cmp .w-icon { display: inline-block; width: 24px; height: 24px; vertical-align: -5px; }
+        /* 列表标题：待办区左上角，让这一块有个明确的开头（原来第一条直接顶着页眉，很突兀） */
+        .list-title { font-size: 18px; font-weight: 700; color: #000000;
+                      letter-spacing: 2px; margin: 6px 0 2px; }
+        a.toggle-btn {
+            text-decoration: none;
+            color: #000000;
+            display: flex;
+            align-items: center;
+            width: 100%;
+        }
+        .checkbox {
+            flex: 0 0 auto;
+            width: 34px;
+            height: 34px;
+            border: 2.5px solid #000000;
+            border-radius: 50%;
+            margin-right: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 19px;
+            font-weight: 900;
+            line-height: 1;
+            color: #ffffff;
+            background: #ffffff;
+        }
+        .checkbox.on { background: #000000; }
+        /* 一行一条：事项文字在左，周期/状态副标题贴右侧（原来在下方，白白多吃一行高度） */
+        .item-body { display: flex; align-items: baseline; flex: 1 1 auto; min-width: 0; }
+        /* 原顺序序号徽章（英文词 one/two/…）：行内右侧、时段文字左边；黑框黑字粗体、文字左对齐 */
+        .item-seq { flex: 0 0 96px; width: 96px; box-sizing: border-box; border: 3px solid #000000; margin-left: 12px;
+                    padding: 2px 4px 2px 8px; font-size: 18px; font-weight: 700; color: #000000;
+                    text-align: left; white-space: nowrap; align-self: center; }
+        .item-seq.pos-before { margin-left: 0; margin-right: 12px; }   /* 行首位置：勾选框与文字之间 */
+        .item-text .item-seq { margin-left: 8px; display: inline-block; vertical-align: middle; }  /* 紧跟位置：小徽章紧贴文字（文字换行时跟着末行） */
+        .item-text { flex: 1 1 auto; min-width: 0; font-size: 27px; font-weight: 700; line-height: 1.3; }
+        /* 已完成：文字加删除线（配合左侧实心勾，一眼能看出做没做） */
+        .toggle-btn.done .item-text { text-decoration: line-through; text-decoration-thickness: 2px; }
+        .item-meta { flex: 0 0 auto; margin-left: 12px; font-size: 16px; color: #000000; white-space: nowrap; }
+        .empty { font-size: 20px; color: #000000; margin-top: 24px; }
+        .emj { height: 1em; width: 1em; vertical-align: -0.12em; display: inline-block; }
+        /* 页脚：按钮在左（图标按钮横排：刷新、横版并排一行，省高度），名言在右（占剩余空间）。 */
+        .footer {
+            display: flex;
+            align-items: center;
+            padding-top: 12px;
+            padding-bottom: 10px;          /* 贴底：越小越靠近屏幕最下沿 */
+            border-top: 1px solid #000000;
+        }
+        .motto {
+            font-size: 15px;
+            color: #000000;
+            text-align: right;            /* 名言在右：右对齐贴右缘（文字长度数据层限制，基本一行） */
+            flex: 1 1 auto;               /* 占按钮之外的剩余空间 */
+            min-width: 0;
+            line-height: 1.45;
+        }
+        .motto-text { font-size: 15px; }          /* 第一行：句子本身 */
+        .motto-author { font-size: 14px; color: #000000; }   /* 第二行：—— 作者（无署名时不渲染） */
+        /* 图标按钮：页脚左侧的 logo 式图形按钮（不用圆圈/边框——圆圈裁切看着像显示不全，纯图形更干净）。
+           图形用代码绘制（内联 SVG，纯黑白线条，不依赖 emoji/字体渲染；老 WebKit 上 <a> 是唯一
+           可靠的点击方式，内联 onclick 与横版按钮同一通路，真机已验证）。30px 图形 + padding 组成触摸目标。
+           刷新 = 圆环旋转箭头；横版 = 横屏矩形 + 顶弧旋转箭头（顺时针 90° 语义）。 */
+        .icon-btn {
+            flex: 0 0 auto;
+            padding: 6px;
+            display: block;
+            text-decoration: none;
+        }
+        .icon-btn svg { display: block; }
+        /* 「屏幕方向」按钮图标：服务端按"点按后的下一方向"直接写好显隐——
+           下一方向是横版(90°/270°)→显示横屏图标(ico-port)；下一方向是竖版(正放/倒立)→显示竖屏图标(ico-land)。
+           旧的按 .land class 切换规则已移除：倒立180°时下一方向是横版270°，旧规则会错显示竖屏图标。 */
+        .icon-btn .ico-land { display: none; }
+        .icon-btn .ico-port { display: block; }
+        /* 世界时间面板（页内展开/收回，点时钟展开；与待办同一槽位替换）：每城一行、大字时刻；
+           家行加粗底边强调。分钟补帧由共享 tick 驱动（每行 data-off 相对家时刻进退），
+           面板收起时元素仍在（display:none），meta 整页刷新，无额外请求。 */
+        .world-panel { padding-top: 0; }   /* 与天气对比面板同一起始位置：标题栏从 scroll 区顶部 6px 处开始 */
+        .world-head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 0 2px; }
+        .world-title { font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #000000; }
+        .world-list { padding-bottom: 8px; }   /* 滚动交给外层 scroll 区，避免双层滚动 */
+        .world-row { display: flex; align-items: baseline; justify-content: space-between;
+                     padding: 14px 0; border-bottom: 1px solid #000000; }
+        .world-row.home { border-bottom: 2px solid #000000; }
+        .world-name { font-size: 19px; font-weight: 700; color: #000000; }
+        .world-time { font-size: 40px; font-weight: 900; letter-spacing: 1px; color: #000000; }
+        .world-date { font-size: 15px; color: #000000; }
+        /* 万年历面板（页内展开/收回，点农历行展开；与待办同一槽位替换）：7 列整月格子 + 今日黄历面板；
+           翻月是 <a> 整页跳（携带 y/m + localStorage 保持展开），meta 刷新携带 URL，当月自然保持。 */
+        .cal-panel { padding-top: 0; }   /* 与天气对比面板同一起始位置：标题栏从 scroll 区顶部 6px 处开始 */
+        .cal-head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 0 2px; }
+        .cal-title { font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #000000; }
+        .cal-navs { display: flex; align-items: baseline; }   /* 右侧导航组：上个月 | 月份 | 下个月 */
+        .cal-month { font-size: 18px; font-weight: 700; letter-spacing: 1px; color: #000000; margin: 0 10px; }
+        .cal-nav { font-size: 15px; font-weight: 600; letter-spacing: 1px; color: #000000; text-decoration: none; padding: 6px 0; }
+        .cal-grid { display: flex; flex-wrap: wrap; }   /* 无边框：1px 网格线在 e-ink 上抖动断线、空格拉灰更丑，靠 7 列对齐 + 留白组织 */
+        .cal-wk { width: 14.28%; box-sizing: border-box; text-align: center; font-size: 14px; font-weight: 800;
+                  color: #000000; padding: 6px 0 8px; }
+        .cal-cell { width: 14.28%; box-sizing: border-box; text-align: center;
+                    padding: 6px 5px; min-height: 60px; }
+        .cal-sun { font-size: 18px; font-weight: 900; color: #000000; }
+        .cal-cell.today { background: #000000; }   /* 整格凸显：黑底白字（不再只给单个数字加框） */
+        .cal-cell.today div { color: #ffffff; }
+        .cal-lunar { font-size: 12px; color: #000000; margin-top: 2px; }
+        .cal-tag { font-size: 12px; color: #000000; margin-top: 1px; }
+        .cal-birth { font-size: 12px; font-weight: 700; color: #000000; margin-top: 1px; }
+        .cal-day { margin-top: 14px; }   /* 不用方框：与格子保持同一干净风格（无框无分隔线） */
+        .cal-day-t { font-size: 15px; font-weight: 800; color: #000000; margin-bottom: 6px; }
+        .cal-yi, .cal-ji { font-size: 14px; color: #000000; line-height: 1.5; }
+        .main { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+                width: 100%; max-width: 620px; margin: 0 auto; }
+        /* 真旋转：四态循环（0°/90°/180°/270°）。
+   - land-1 (90°) / land-3 (270°)：横版布局，body 绝对定位 800×600 + rotate(±90°) 装进 600×800 视口。
+   - land-2 (180°)：竖版布局（同 0°），**不再绝对定位**，body 保持正常流 flex 容器，仅 rotate(180°) 绕中心翻转。
+   竖版(0°)不加 .land class；横版三态分别用 .land-1/.land-2/.land-3 控制旋转角度。 */
+        /* land-1 / land-3：横版，需绝对定位把 800×600 横版画布旋 90° 装进 600×800 视口 */
+        .land-1 body,
+        .land-3 body {
+            position: absolute;
+            left: 50%; top: 50%;
+            width: 800px; height: 600px;
+            margin-left: -400px; margin-top: -300px;
+            -webkit-transform-origin: 50% 50%;
+            transform-origin: 50% 50%;
+        }
+        .land-1 body { -webkit-transform: rotate(90deg); transform: rotate(90deg); }
+        .land-3 body { -webkit-transform: rotate(270deg); transform: rotate(270deg); }
+        /* land-2：180° 倒立，尺寸不变（视口同为 600×800），不需绝对定位，也不需要任何布局覆盖规则：
+           body 保持正常流 flex 容器（html,body{height:100%} → 正好铺满视口，无留白），
+           仅绕中心 rotate(180°) 整体翻转 → 布局与竖版 0° 逐字节一致（页眉三块横排、
+           正文宽度/边距/字号全同竖屏），只是上下颠倒，物理倒着摆时正好正读。 */
+        .land-2 body {
+            -webkit-transform: rotate(180deg);
+            transform: rotate(180deg);
+            -webkit-transform-origin: center;
+            transform-origin: center;
+        }
+        /* 曾在此给 land-2 加过一组"满屏/hero 竖排"覆盖规则（.land-2 .main/.pane/.hero/.hero-row/
+           .clock/.weather/.scroll/.cmp-table…），但那是从横版规则抄来的：.hero-row 竖排会把页眉
+           时钟/日期/天气三块叠成一列，.pane padding:0 还会吃掉竖屏版的 22px 边距。
+           经确认倒放不需要这些——上面一条 body 旋转就已铺满且与竖版一致，故整组删除。 */
+        /* 仅 land-1/land-3 (90°/270°) 使用横版布局：flex-direction: row */
+        .land-1 .main,
+        .land-3 .main { flex-direction: row; padding: 0; align-items: stretch; flex: 1; }
+        .land-1 .main > .pane,
+        .land-3 .main > .pane { padding: 0; max-width: none; margin: 0; width: auto; }
+        .land-1 .hero,
+        .land-3 .hero { flex: 0 0 260px; margin-right: 12px; display: flex; flex-direction: column; }
+        .land-1 .hero-row,
+        .land-3 .hero-row { flex: 1 1 auto; flex-direction: column; padding-top: 4px; }
+        .land-1 .hero-row > *,
+        .land-3 .hero-row > * { flex: 0 0 auto; }
+        .land-1 .clock,
+        .land-3 .clock { margin-right: 0; line-height: 1; font-size: 70px; }
+        .land-1 .hero-info,
+        .land-3 .hero-info { margin-right: 0; margin-top: 12px; }
+        .land-1 .hero-info > div, .land-1 .weather > div,
+        .land-3 .hero-info > div, .land-3 .weather > div { white-space: normal; height: auto; line-height: 1.4; }
+        .land-1 .weather,
+        .land-3 .weather { text-align: left; margin-top: 12px; }
+        .land-1 .w-top,
+        .land-3 .w-top { justify-content: flex-start; }
+        .land-1 .scroll,
+        .land-3 .scroll { flex: 1 1 auto; min-width: 0; }
+        .land-1 .cmp-table th, .land-1 .cmp-table td,
+        .land-3 .cmp-table th, .land-3 .cmp-table td { font-size: 15px; padding: 7px 0; }
+        .land-1 .cmp-table th, .land-3 .cmp-table th { font-size: 14px; }
+        .land-1 .cmp-table .lab, .land-3 .cmp-table .lab { width: 64px; font-size: 14px; }
+        /* 页脚按钮组：图标按钮横排（刷新、横版并排；竖排两行把页脚撑太高） */
+        .footer-btns { display: flex; flex-direction: row; align-items: center; flex: 0 0 auto; margin-right: 14px; }
+        .footer-btns .icon-btn + .icon-btn { margin-left: 12px; }
+    </style>
+</head>
+<body>
+    {# 横版 class 现在由服务端按 ?land=1 直接写进 <html>，这里不再读 localStorage：
+       真机上 localStorage 抛异常/不落盘时，旧的首帧脚本和切换按钮都会"点了没反应"；
+       服务端写法还更干净——字节一进来看到的就是横版，没有先竖后横的二次重绘。 #}
+    {# 顶部（时钟/日期/天气）：单页面——点时钟展开世界时间、点农历行展开万年历、
+       点天气块展开对比面板，再点收回（页内展开/收回、不跳页，与天气对比同一机制）。 #}
+    {% macro render_hero(data) %}
+    <div class="hero pane">
+        <div class="hero-row">
+            <a class="clock" id="clockTime" href="javascript:void(0)"
+               onclick="togglePanel('world'); return false;" title="点按展开/收起世界时间">{{ data['clock_time'] }}</a>
+            <div class="hero-info">
+                <div class="date-line" id="clockDate">{{ data['date_line'] }}</div>
+                {% if data['lunar_line'] %}
+                <a class="lunar-line" href="javascript:void(0)"
+                   onclick="togglePanel('cal'); return false;" title="点按展开/收起万年历（整月格子 + 当日吉凶）">{{ data['lunar_line'] }}</a>
+                {% endif %}
+                {% if data['holiday_text'] %}
+                <div class="holiday">{{ data['holiday_html'] | safe }}</div>
+                {% endif %}
+            </div>
+            {% if data['weather'] %}
+            <a class="weather" id="weatherBox" href="javascript:void(0)" onclick="toggleCmp(); return false;">
+                <div class="w-top">{{ data['weather']['svg'] | safe }}<span class="w-temp">{{ data['weather']['temp'] }}</span>{% if data['weather']['feel'] %}<span class="w-extra">{{ data['weather']['feel'] }}</span>{% endif %}</div>
+                {# 空气、紫外线不再放页眉（展开面板里本来就有这两行），页眉只留天气走势和地点风向 #}
+                <div class="w-desc">{{ data['weather']['desc_line'] }}</div>
+                <div class="w-loc">{{ data['weather']['loc_line'] }}{% if data['weather']['cmp'] %}<span class="w-more" aria-hidden="true">▾</span>{% endif %}</div>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endmacro %}
+    <div class="main">
+        {{ render_hero(data) }}
+    <div class="scroll pane" id="scrollArea">
+        {# 展开/收回面板与待办区同一槽位：点天气块/时钟/农历行展开其一（待办整块让位），
+           再点（或点面板内"收起"）回到待办，同一时间只开一个。默认全部 display:none：
+           JS 挂了时待办照常显示，不会卡在空屏上。 #}
+        <div class="world-panel" id="worldBox" style="display:none">
+            <div class="world-head">
+                <div class="world-title">世界时间</div>
+                <a class="panel-close" href="javascript:void(0)" onclick="togglePanel('world'); return false;" title="收起">收起</a>
+            </div>
+            <div class="world-list">
+                {% for w in data['world'] %}
+                <div class="world-row{% if w['home'] %} home{% endif %}">
+                    <span class="world-name">{{ w['name'] }}</span>
+                    <span class="world-time" data-off="{{ w['off'] }}" data-last="{{ w['time'] }}">{{ w['time'] }}</span>
+                    <span class="world-date">{{ w['date'] }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="cal-panel" id="calBox" style="display:none">
+            <div class="cal-head">
+                <div class="cal-title">万年历</div>
+                <div class="cal-navs">
+                    {# 翻月链接：保留 key/land（服务端拼好 href）+ #cal 片段——
+                       片段让翻完月回到页面时**万年历仍是展开的**（面板状态走地址栏，
+                       不依赖真机上可能被禁的 localStorage）。#cal 不匹配任何元素 id，不会滚动。 #}
+                    <a class="cal-nav" href="{{ data['cal']['prev']['href'] }}#cal">上个月</a>
+                    <div class="cal-month">{{ data['cal']['title'] }}</div>
+                    <a class="cal-nav" href="{{ data['cal']['next']['href'] }}#cal">下个月</a>
+                </div>
+            </div>
+            <div class="cal-grid">
+                {% for w in data['cal']['week'] %}
+                <div class="cal-wk">{{ w }}</div>
+                {% endfor %}
+                {% for cell in data['cal']['cells'] %}
+                {% if cell %}
+                <div class="cal-cell{% if cell['today'] %} today{% endif %}">
+                    <div class="cal-sun">{{ cell['sun'] }}</div>
+                    {% if cell['lunar'] %}<div class="cal-lunar">{{ cell['lunar'] }}</div>{% endif %}
+                    {% if cell['tag'] %}<div class="cal-tag">{{ cell['tag'] }}</div>{% endif %}
+                    {% if cell['birth'] %}<div class="cal-birth">{{ cell['birth'] }}</div>{% endif %}
+                </div>
+                {% else %}
+                <div class="cal-cell empty"></div>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% if data['cal']['today_line'] %}
+            <div class="cal-day">
+                <div class="cal-day-t">今日黄历 · {{ data['cal']['today_d'] }}日 · {{ data['cal']['today_lunar'] }} · {{ data['cal']['today_line']['ganzhi'] }}日 · {{ data['cal']['today_line']['jianchu'] }}日</div>
+                <div class="cal-yi">宜 {{ data['cal']['today_line']['yi'] | join('、') }}</div>
+                <div class="cal-ji">忌 {{ data['cal']['today_line']['ji'] | join('、') }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% if data['weather'] and data['weather']['cmp'] %}
+        <div class="cmp" id="cmpBox">
+            <div class="cmp-bar">
+                <span class="cmp-title">天气</span>
+                <a class="panel-close" href="javascript:void(0)" onclick="toggleCmp(); return false;">收起</a>
+            </div>
+            <table class="cmp-table">
+                <tr>
+                    <th class="lab"></th>
+                    {% for c in data['weather']['cmp'] %}
+                    <th class="{{ c['cls'] }}">{{ c['label'] }} {{ c['date'] }} {{ c['wd'] }}</th>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">天气</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['svg'] | safe }}<span class="cmp-desc">{{ c['desc'] }}</span></td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">温度</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['temp'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">体感最高</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['feel'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">风</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['wind'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">阵风</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['gust'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">紫外线</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['uv'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">空气 AQI</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['air'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">湿度</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['humidity'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">降水概率</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['pop'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">日出</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['sunrise'] }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="lab">日落</td>
+                    {% for c in data['weather']['cmp'] %}
+                    <td class="{{ c['cls'] }}">{{ c['sunset'] }}</td>
+                    {% endfor %}
+                </tr>
+            </table>
+        </div>
+        {% endif %}
+        {# 待办整块包一层：点天气块时它整块隐藏、由下面的对比面板顶上来（替换，不是插在上面挤下面）。
+           放在面板之前：JS 挂了时默认显示的仍是待办，不会卡在空屏上 #}
+        <div class="list-view" id="listView">
+        <div class="list-title">当前时段待办</div>
+        {% if data['items'] %}
+        <ul>
+            {% for item in data['items'] %}
+            <li>
+                <a href="/toggle/{{ item['id'] }}{{ data['toggle_q'] }}" data-id="{{ item['id'] }}"
+                   class="toggle-btn{% if item['checked'] %} done{% endif %}"
+                   onclick="return toggleItem(this);">
+                    <span class="checkbox{% if item['checked'] %} on{% endif %}">{% if item['checked'] %}✓{% endif %}</span>
+                    {# 序号位置由 admin 的 seq_pos 决定：
+                       before=行首（勾选框后）/ after=紧跟文字（序号在文字 span 内，
+                       文字后贴着小号徽章，文字换行时序号跟着末行走）/ end=行末固定 #}
+                    {% if data['seq_pos'] == 'before' and item['seq'] %}<span class="item-seq pos-before">{{ item['seq'] }}</span>{% endif %}
+                    <span class="item-body">
+                        <span class="item-text">{{ item['text_html'] | safe }}{% if data['seq_pos'] == 'after' and item['seq'] %}<span class="item-seq">{{ item['seq'] }}</span>{% endif %}</span>
+                        {# meta 恒渲染（哪怕为空）：页内勾选后要能就地写回副标题，缺节点就写不了 #}
+                        <span class="item-meta">{{ item['meta'] }}</span>
+                        {% if data['seq_pos'] == 'end' and item['seq'] %}<span class="item-seq pos-end">{{ item['seq'] }}</span>{% endif %}
+                    </span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty">当前时段没有待显示的事项</div>
+        {% endif %}
+        </div>
+    </div>
+    </div>
+
+    <div class="more-hint pane" id="moreHint"></div>
+
+    <div class="footer pane">
+        <div class="footer-btns">
+            {# 刷新：带上当前 query（key / 横版 ?land=1 / 万年历 ?y=&m=），不然一刷全被清掉 #}
+            <a class="icon-btn" href="{{ request.full_path }}" title="立即刷新页面">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15A9 9 0 1 1 14.85 2.64L23 10"></path></svg>
+            </a>
+            <a class="icon-btn" id="modeLink" href="javascript:void(0)" onclick="toggleLand(); return false;" title="切换屏幕方向">
+                {# 两个图标都由服务端显式写好 display（block/none 二选一）：只写"隐藏另一个"而不显式
+                   "显示本图"时，下一个方向是竖版（land_next_landscape=false，如白名单只开 0+2）会把两个
+                   图标都藏掉，按钮变成空白。 #}
+                <svg class="ico-port" style="{% if data['land_next_landscape'] %}display:block{% else %}display:none{% endif %}" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9.5" width="16" height="8.5" rx="1.8"></rect><path d="M8 5.5 A4 4 0 0 1 16 5.5"></path><path d="M16 8.4 L14.3 5.4 L17.9 5.4 Z" fill="#000000" stroke="none"></path></svg>
+                <svg class="ico-land" style="{% if data['land_next_landscape'] %}display:none{% else %}display:block{% endif %}" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="9.5" y="7" width="8.5" height="14" rx="1.8"></rect><path d="M16 5.5 A4 4 0 0 0 8 5.5"></path><path d="M8 8.4 L9.7 5.4 L6.1 5.4 Z" fill="#000000" stroke="none"></path></svg>
+            </a>
+        </div>
+        <div class="motto">
+            <div class="motto-text">{{ data['motto_text'] }}</div>
+            {% if data['motto_author'] %}
+            <div class="motto-author">{{ data['motto_author'] }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# canvas 保活元素：只有最强体验档（best）真的要跑保活时才渲染，其它档连元素都不下发 #}
+    {% if data['power']['canvas_ms'] %}<canvas id="keepAliveCanvas" width="1" height="1" style="display:none;"></canvas>{% endif %}
+    <script>
+      // 横版/竖版切换：与待办链接同一条通路（<a> + inline onclick，真机验证过可靠）。
+      // 状态放**地址栏**（?land=0/1/2/3），不再存 localStorage：
+      // 旧代码 setItem 和 location.reload() 在同一个 try 里——真机上 localStorage 一抛异常，
+      // 后面的 reload 根本执行不到，按钮就是"点了没反应"；就算不抛错只是不落盘，刷新后也等于没切。
+      // 现在服务端直接按 ?land=1/2/3 写 <html class="land land-N">，而 meta 刷新是原地 reload（不带 url=），
+      // 参数会一直带着：cookie / localStorage 被禁用也能记住模式。
+      // 屏幕方向白名单：admin 只开放部分模式时（如仅"正放+倒放"），按钮只在这些模式间循环。
+      var LAND_MODES = [{{ data['land_modes'] | join(',') }}];   // admin 开放的方向（按 0,1,2,3 正序）
+      function _nextLand(land) {
+        var modes = (LAND_MODES && LAND_MODES.length) ? LAND_MODES : [0];
+        if (modes.indexOf(land) < 0) return modes[0];
+        return modes[(modes.indexOf(land) + 1) % modes.length];
+      }
+      function toggleLand() {
+        var cn = document.documentElement.className;
+        var land = 0;
+        if (cn.indexOf('land-1') >= 0) land = 1;
+        else if (cn.indexOf('land-2') >= 0) land = 2;
+        else if (cn.indexOf('land-3') >= 0) land = 3;
+        var next = _nextLand(land);   // 只在开放的方向里循环
+        var q = location.search || '';
+        var keep = [];
+        if (q.length > 1) {
+          var ps = q.substring(1).split('&');
+          for (var i = 0; i < ps.length; i++) {
+            if (ps[i] && ps[i].split('=')[0] !== 'land') keep.push(ps[i]);   // key / y / m / panel 都留住
+          }
+        }
+        keep.push('land=' + next);   // 连 0 也显式写：URL 缺 land 参数时服务端按 admin 默认方向渲染
+        try {
+          location.replace(location.pathname + (keep.length ? '?' + keep.join('&') : '') + location.hash);
+        } catch (e) { location.reload(); }
+      }
+      window.toggleLand = toggleLand;
+      try {
+        var _ml = document.getElementById('modeLink');
+        if (_ml) {
+          var _cn = document.documentElement.className;
+          var _land = 0;
+          if (_cn.indexOf('land-1') >= 0) _land = 1;
+          else if (_cn.indexOf('land-2') >= 0) _land = 2;
+          else if (_cn.indexOf('land-3') >= 0) _land = 3;
+          var _names = { 0: '正放', 1: '横版 90°', 2: '倒立 180°', 3: '横版 270°' };
+          _ml.title = '当前' + _names[_land] + '，点按切换为' + _names[_nextLand(_land)];
+        }
+      } catch (e) {}
+
+      // 0. 统一「展开/收回」：天气对比(cmp) / 世界时间(world) / 万年历(cal) 与待办区同一槽位。
+      //    点天气块/时钟/农历行展开对应面板（待办整块让位），再点（或点"收起"）回到待办，
+      //    同一时间只开一个。默认收起，零常驻空间；展开状态存 localStorage：
+      //    页面整页自动刷新后不记的话会被打回收起。
+      //    必须放在脚本最前面：只要它之前的任何一句抛异常，<script> 后半段就都不会执行，
+      //    内联 onclick 会变成"点了没反应"——真机上就是这样翻过车。
+      // 当前开着哪个面板：**只看 DOM 实况**。
+      // 真机上 localStorage 会抛异常或不落盘，拿它当开关就会"只能展开、收不回"——
+      // 每次读出来都是空串 → 永远判成"当前是待办" → 再点只是又展开一次（Windows 上能收，
+      // 正是因为那边 localStorage 能正常写回去）。
+      function _panelOf() {
+        var w = document.getElementById('worldBox');
+        var c = document.getElementById('calBox');
+        var m = document.getElementById('cmpBox');
+        try {
+          if (w && w.style.display === 'block') return 'world';
+          if (c && c.style.display === 'block') return 'cal';
+          if (m && m.style.display === 'block') return 'cmp';
+        } catch (e) {}
+        return 'todo';
+      }
+      // 面板状态记在哪：优先**地址栏查询参数** ?panel=world/cal/cmp——真机上 storage 常被禁用
+      // 或不落盘，且 meta 整页刷新会**丢掉 hash 片段、但保留 query 参数**（与 ?land= 同一条通路，
+      // 跨刷新存活已真机验证）；#world/#cal/#cmp 片段与 localStorage 仅作兜底。
+      // 值刻意与元素 id 错开（面板是 calBox/worldBox/cmpBox），浏览器找不到锚点就不会滚动。
+      function _queryPanel() {
+        var m = (location.search || '').match(/[?&]panel=([^&#]*)/);
+        return (m && (m[1] === 'world' || m[1] === 'cal' || m[1] === 'cmp')) ? m[1] : '';
+      }
+      function _hashPanel() {
+        var h = (location.hash || '').replace(/^#/, '');
+        return (h === 'world' || h === 'cal' || h === 'cmp') ? h : '';
+      }
+      function _writePanel(name) {
+        var want = (name && name !== 'todo') ? name : '';
+        // 重建 query：换掉旧 panel 参数，其余（key / land / y / m）全部保留
+        var q = location.search ? location.search.substring(1) : '';
+        var ps = q ? q.split('&') : [];
+        var keep = [];
+        for (var i = 0; i < ps.length; i++) {
+          if (ps[i] && ps[i].split('=')[0] !== 'panel') keep.push(ps[i]);
+        }
+        if (want) keep.push('panel=' + want);
+        var newUrl = location.pathname + (keep.length ? '?' + keep.join('&') : '') + (want ? '#' + want : '');
+        try {
+          if (window.history && history.replaceState) {     // 不产生历史记录、不触发滚动、不整页刷新
+            history.replaceState(null, '', newUrl);
+            return;
+          }
+        } catch (e) {}
+        // 老内核/Kindle：replaceState 不可靠时退回整页替换（会闪一下，但状态务必落进地址栏）
+        try { location.replace(newUrl); } catch (e2) { try { location.hash = want; } catch (e3) {} }
+      }
+      // 页面首次加载时恢复上次的面板：query > 片段 > localStorage；读不到就当没开。
+      // 降级只影响"整页自动刷新后是否还开着"，不影响开关交互本身。
+      function _savedPanel() {
+        var q = _queryPanel();
+        if (q) return q;                       // 地址栏 query 说了算（跨 meta 刷新存活）
+        var h = _hashPanel();
+        if (h) return h;
+        try {
+          var v = localStorage.getItem('kd_panel') || '';
+          if (v !== 'world' && v !== 'cal' && v !== 'cmp') {
+            v = (localStorage.getItem('kd_cmp') === '1') ? 'cmp' : 'todo';   // 兼容旧键（天气专用面板期）
+          }
+          return v;
+        } catch (e) { return 'todo'; }
+      }
+      function setPanel(name) {
+        var lv = document.getElementById('listView');
+        var wb = document.getElementById('worldBox');
+        var cb = document.getElementById('calBox');
+        var mp = document.getElementById('cmpBox');
+        if (lv) lv.style.display = (name === 'todo') ? '' : 'none';
+        if (wb) wb.style.display = (name === 'world') ? 'block' : 'none';
+        if (cb) cb.style.display = (name === 'cal') ? 'block' : 'none';
+        if (mp) mp.style.display = (name === 'cmp') ? 'block' : 'none';
+        try { localStorage.setItem('kd_panel', name === 'todo' ? '' : name); } catch (e1) {}
+        _writePanel(name);                                   // 状态写进地址栏 query（跨 meta 刷新存活）
+        var sc = document.getElementById('scrollArea');
+        if (sc && name !== 'todo') sc.scrollTop = 0;   // 打开时回到顶，别停在上次滚动的位置
+        try { updateHint(); } catch (e2) {}            // 面板开着时不显示"还有 N 项待办"；它出错也不能拖垮切换
+      }
+      function togglePanel(name) { setPanel(_panelOf() === name ? 'todo' : name); }
+      function toggleCmp() { togglePanel('cmp'); }      // 保留旧函数名：天气块内联 onclick 仍调它
+      window.togglePanel = togglePanel;                 // 显式挂全局，内联 onclick 一定找得到
+      window.toggleCmp = toggleCmp;
+
+      // 页内打勾：不整页刷新（e-ink 上整页刷新闪一下、整页重绘，观感很差）。
+      // 走 XHR POST（POST 不会被浏览器缓存，GET 有可能吃上一条响应），
+      // 成功后按服务端回的副标题就地改：删除线、勾、副标题一次到位。
+      // URL 带上地址栏里的 key：真机若 cookie 被禁（localStorage 被禁多半就是这个原因），
+      // 只有 key 在地址栏里，不带上就会被 302 到登录页、拿回登录页 HTML 当结果。
+      function _authQ() {
+        var m = (location.search || '').match(/[?&]key=([^&#]*)/);
+        return m ? '&key=' + m[1] : '';
+      }
+      function _paintItem(a, checked, meta) {
+        a.className = checked ? 'toggle-btn done' : 'toggle-btn';
+        var sp = a.getElementsByTagName('span');
+        var cb = sp[0];                       // [0]=勾 [1]=.item-body
+        if (cb) { cb.className = checked ? 'checkbox on' : 'checkbox'; cb.innerHTML = checked ? '✓' : ''; }
+        if (typeof meta === 'string' && a.getElementsByClassName) {
+          var mt = a.getElementsByClassName('item-meta');
+          if (mt && mt[0]) mt[0].textContent = meta;
+        }
+      }
+      function toggleItem(a) {
+        var id = a.getAttribute('data-id');
+        if (!id || !window.XMLHttpRequest) return true;   // 降级：走原来的整页勾选（href 还在）
+        if (a.getAttribute('data-busy') === '1') return false;   // 防连点（e-ink 反馈慢容易多点一次）
+        a.setAttribute('data-busy', '1');
+        var free = function () { try { a.removeAttribute('data-busy'); } catch (e) {} };
+        var kill = setTimeout(free, 5000);                // 请求挂死也不能把这条卡成不可点
+        try {
+          var x = new XMLHttpRequest();
+          x.onreadystatechange = function () {
+            if (x.readyState !== 4) return;
+            clearTimeout(kill); free();
+            if (x.status < 200 || x.status >= 300) return;   // 没成功：界面不动，再点一次即可
+            // 必须拿到 ok=1 的 JSON 才动界面：被 302 到登录页时 status 也是 200、
+            // 但 body 是 HTML，不校验就会"假打勾"（服务端其实没翻）
+            var ok = false, m = null, c = null;
+            try {
+              var j = JSON.parse(x.responseText);
+              if (j && j.ok === 1) { ok = true; m = j.meta; c = j.checked; }
+            } catch (e1) {}
+            if (!ok) return;
+            // 万一 meta/checked 缺失，按"当前状态取反"推断（ok=1 就说明已经翻过了）
+            if (c === null) c = (a.className.indexOf('done') < 0);
+            _paintItem(a, c, m);
+          };
+          var href = a.getAttribute('href') || '';
+          x.open('POST', href + (href.indexOf('?') > -1 ? '&' : '?') + 'js=1&t='
+                 + new Date().getTime() + _authQ(), true);
+          x.send(null);
+        } catch (e) { clearTimeout(kill); free(); return true; }   // 发不出去 → 退回整页勾选
+        return false;
+      }
+      window.toggleItem = toggleItem;
+      try { setPanel(_savedPanel()); } catch (e) {}   // 刷新回来仍是展开的（localStorage 读不到就当没开）
+
+      // 1. 视口高度对齐：老 WebKit 上 html 的 100% 偶尔比实际可视高度矮，页脚就会离屏幕底边留一段空白。
+      //    只在真的有空隙时把 <html> 撑到 innerHeight（只增不减，不会把页脚顶到屏幕外）。
+      function fitViewport() {
+        try {
+          var root = document.documentElement;
+          var h = window.innerHeight || root.clientHeight;
+          if (!h) return;
+          // 注意：documentElement.clientHeight 对根元素返回的是"视口"高度而非盒子高度，必须用 rect 量
+          var cur = root.getBoundingClientRect().height;
+          var mine = root.style.height;   // 自己设过的才允许改小，否则转屏后会被顶到屏幕外
+          if (h > cur + 1 || mine) root.style.height = h + 'px';
+        } catch (e) {}
+      }
+      fitViewport();
+      // 1.5 时钟自适应字号：三列三等分后每列只有 1/3 宽（Kindle 600 上扣掉 24px 列距只剩 161px），
+      //     而 70px 的「20:20」宽 201px，不缩就会压到日期那一列。按列宽缩字号、上限 70，
+      //     这样宽屏还是大时钟，窄屏自动收。2.95 = 实测 201px/70px 再留 3% 余量。
+      //     行盒在 CSS 里钉死 74px，所以改字号不会顶高页眉、也不会动三行对表。
+      function fitClock() {
+        try {
+          var c = document.getElementById('clockTime');
+          if (!c) return;
+          c.style.fontSize = '';        // 先还原成 CSS 兜底值，才能量到真实列宽
+          var w = c.clientWidth;        // flex:1 1 0 三等分后 = 本列内容宽
+          if (!w) return;
+          var size = Math.floor(w / 2.95);
+          if (size > 70) size = 70;
+          if (size < 32) size = 32;
+          c.style.fontSize = size + 'px';
+        } catch (e) {}
+      }
+      // 只挂在 load（布局稳定后）上：脚本执行时立刻 fitClock 会量到偏窄的列宽，
+      // 首次刷新时钟先画小、稍后 load 再被改正，e-ink 上能看到明显"先小后大"跳变
+      window.addEventListener('resize', function () { fitViewport(); fitClock(); });
+      window.addEventListener('load', fitClock);
+
+      // （天气块点击的 toggleCmp 已提到脚本最前面，避免被前面的语句打断）
+
+      {% if data['power']['canvas_ms'] %}
+      // 2. Canvas 保持渲染（整段包 try：老内核取不到 2d 上下文时，不能拖垮后面的时钟/滚动逻辑）。
+      //    30s 对保活已足够（原 3s：唤醒更激进只费电；15s 网络心跳另有一路活动）
+      //    只有「最强体验」档下发这段；通用/省电档整段不渲染 —— 页面里连定时器都没有，零空转。
+      try {
+        var canvas = document.getElementById('keepAliveCanvas');
+        var ctx = canvas.getContext('2d');
+        setInterval(function() {
+            ctx.fillStyle = (ctx.fillStyle === '#ffffff') ? '#000000' : '#ffffff';
+            ctx.fillRect(0, 0, 1, 1);
+        }, {{ data['power']['canvas_ms'] }});
+      } catch (e) {}
+      {% endif %}
+
+      {% if data['power']['ping_ms'] %}
+      // 3. 发送网络心跳包，防止 Kindle 芯片进入低功耗 Wi-Fi 休眠。
+      //    15s 周期是真机实测的 WiFi 保活参数（最强体验档）；通用档降到 60s、省电档整段不下发——
+      //    心跳的目的是让 Wi-Fi 不睡，可每 3 分钟一次的整页刷新本来就会把它叫醒，两者叠加纯属浪费电力。
+      //    /ping 只回一个空 204（不是整页），服务端开销和客户端内存开销都趋近于零。
+      //    Image 对象只 new 一次反复换 src：原来每 15s new 一个，纯给 GC 添堵。
+      var kdPingImg = new Image();
+      setInterval(function() {
+          kdPingImg.src = '/ping?t=' + new Date().getTime();
+      }, {{ data['power']['ping_ms'] }});
+      {% endif %}
+
+      // 4. 时钟分钟补帧：以服务端下发时刻为基准推算墙钟，仅"分"/"日"变化时写 DOM（e-ink 友好）。
+      //    不用 setInterval 每秒唤醒 JS 引擎：常驻页面要省每一分电（e-ink 设备电池），
+      //    setTimeout 对齐到下一分钟边界，一次睡约 1 分钟。
+      var baseTs = {{ data['now_ts'] }};
+      var tzMin = {{ data['tz_min'] }};
+      var loadMs = Date.now();
+      var WK = ['周日','周一','周二','周三','周四','周五','周六']; // 按 getUTCDay()（0=周日）
+      var tEl = document.getElementById('clockTime');
+      var dEl = document.getElementById('clockDate');
+      function pad(n) { return (n < 10 ? '0' : '') + n; }
+      var lastT = '', lastD = '';
+      function tick() {
+        var ms = baseTs * 1000 + (Date.now() - loadMs);   // 服务端墙钟 (UTC ms)
+        var d = new Date(ms + tzMin * 60000);             // 平移到 +08:00 取分量（仅内部使用，不显示时区）
+        var t = pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+        var da = d.getUTCFullYear() + ' ' + (d.getUTCMonth() + 1) + '月' + d.getUTCDate() +
+                 '日 · ' + WK[d.getUTCDay()];            // 农历行由服务端下发，跨零点随整页刷新更新
+        if (t !== lastT) { lastT = t; if (tEl) tEl.textContent = t; }
+        if (da !== lastD) { lastD = da; if (dEl) dEl.textContent = da; }
+        // 世界时间面板：每行按 data-off 分钟相对家时刻进退；分钟没变不写 DOM（e-ink 友好）。
+        // 面板收起时元素仍在（display:none），按分钟变化判断依旧避免多余写入，开销可忽略。
+        var wls = document.getElementsByClassName('world-time');
+        for (var wi = 0; wi < wls.length; wi++) {
+          var woff = parseInt(wls[wi].getAttribute('data-off') || '0', 10);
+          var wd2 = new Date(ms + (tzMin + woff) * 60000);
+          var wt = pad(wd2.getUTCHours()) + ':' + pad(wd2.getUTCMinutes());
+          if (wls[wi].getAttribute('data-last') !== wt) {
+            wls[wi].setAttribute('data-last', wt);
+            wls[wi].textContent = wt;
+          }
+        }
+      }
+      function nextTickDelay() {
+        var ms = baseTs * 1000 + (Date.now() - loadMs);
+        var d = new Date(ms + tzMin * 60000);
+        return (60 - d.getUTCSeconds()) * 1000 + 300;      // 分钟翻转后 0.3s 触发，保证写到新分钟
+      }
+      function scheduleTick() {
+        setTimeout(function () { tick(); scheduleTick(); }, Math.max(500, Math.round(nextTickDelay())));
+      }
+      tick();
+      scheduleTick();
+
+      // 5. 中间待办区滚动：只要下面还有内容就显示"还有 N 项"，滚到底自动收起
+      var sc = document.getElementById('scrollArea');
+      var hint = document.getElementById('moreHint');
+      var lastHint = null;
+      function updateHint() {
+        if (!sc || !hint) return;
+        var text = '';
+        var _pOpen = false;
+        var _pn = ['cmpBox', 'worldBox', 'calBox'];
+        for (var _pi = 0; _pi < _pn.length; _pi++) {
+          var _pp = document.getElementById(_pn[_pi]);
+          if (_pp && _pp.style.display === 'block') { _pOpen = true; break; }
+        }
+        if (_pOpen) {
+          text = '';                       // 面板整块顶着待办时，别说"下面还有 N 项待办"
+        } else if (sc.scrollHeight - sc.scrollTop - sc.clientHeight > 4) {
+          var limit = sc.getBoundingClientRect().bottom;
+          var lis = sc.getElementsByTagName('li');
+          var n = 0;
+          for (var i = 0; i < lis.length; i++) {
+            if (lis[i].getBoundingClientRect().bottom > limit + 2) n++;
+          }
+          text = n > 0 ? '↓ 下面还有 ' + n + ' 项待办' : '↓ 继续下滑查看更多';
+        }
+        if (text !== lastHint) {          // 只在文案变化时写 DOM（e-ink 友好）
+          lastHint = text;
+          hint.style.display = text ? 'block' : 'none';
+          hint.textContent = text;
+        }
+      }
+
+      // 6. 整页自动刷新/打勾跳转后恢复滚动位置，避免每次都跳回顶部
+      var SC_KEY = 'kd_scroll_top';
+      if (sc) {
+        try {
+          var saved = sessionStorage.getItem(SC_KEY);
+          if (saved) sc.scrollTop = parseInt(saved, 10) || 0;
+        } catch (e) {}
+        sc.addEventListener('scroll', function () {
+          updateHint();
+          try { sessionStorage.setItem(SC_KEY, String(sc.scrollTop)); } catch (e) {}
+        });
+        window.addEventListener('resize', updateHint);
+        window.addEventListener('load', updateHint);   // 图片/字体就位后再算一次
+        updateHint();
+      }
+    </script>
+</body>
+</html>

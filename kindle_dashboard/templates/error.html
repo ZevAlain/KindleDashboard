@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Kindle 看板</title>
+    <style>
+        html, body { height: 100%; }
+        body { font-family: sans-serif; background: #ffffff; color: #000000; margin: 0;
+               display: flex; align-items: center; justify-content: center; }
+        .err { text-align: center; padding: 20px; }
+        .err h1 { font-size: 30px; margin: 0 0 12px; }
+        .err p { font-size: 16px; color: #000000; margin: 0; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <div class="err">
+        <h1>看板服务异常</h1>
+        <p>{{ msg }}</p>
+        <p>页面会按间隔自动重试；如长时间不变，请检查服务器是否在线。</p>
+    </div>
+</body>
+</html>

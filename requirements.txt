@@ -1,0 +1,13 @@
+# 核心（必需）
+flask>=3.0
+
+# 生产服务器（Docker 内使用；本地源码运行可不用）
+gunicorn>=21.2
+
+# 可选增强（缺失时自动降级，不报错）：
+#   emoji   —— 精确识别文本中的 emoji（缺失退宽正则）
+#   resvg-py—— 把 Twemoji SVG 栅格化成 PNG（缺失退浏览器直接渲染 SVG）
+#   Pillow  —— 彩色图转黑白单色（墨水屏更清晰；缺失则不做单色化）
+emoji>=2.10
+resvg-py>=0.2
+Pillow>=10.0

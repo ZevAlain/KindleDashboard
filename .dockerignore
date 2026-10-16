@@ -1,0 +1,19 @@
+# 构建上下文里不需要进镜像的东西（数据文件一律不进镜像层）
+.git
+.github
+__pycache__
+*.pyc
+.venv
+venv
+.runtime_secrets
+data.json
+data.json.bak
+data.json.tmp
+data.json.corrupt
+cache/
+static/
+README.md
+LICENSE
+.dockerignore
+Dockerfile
+docker-compose.yml

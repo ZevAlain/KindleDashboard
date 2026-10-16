@@ -1,0 +1,20 @@
+# ---- 运行时生成的数据（含密码/个人待办，绝不能进仓库）----
+.runtime_secrets
+data.json
+data.json.bak
+data.json.tmp
+data.json.corrupt
+cache/
+static/emoji/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 编辑器/系统 ----
+.idea/
+.vscode/
+.DS_Store
