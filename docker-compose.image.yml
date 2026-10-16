@@ -1,0 +1,14 @@
+services:
+  kindle-dashboard:
+    # 版本二：直接用 GitHub Actions 构建好的镜像（main 每次提交自动更新 latest）
+    # 本地构建的版本见 docker-compose.yml
+    image: ghcr.io/zevalain/kindledashboard:latest
+    container_name: kindle-dashboard
+    restart: unless-stopped
+    ports:
+      - "41241:41241"
+    volumes:
+      - ./data:/data        # 配置、待办、缓存、密钥全在这里，备份这个目录即可
+    environment:
+      - TZ=Asia/Shanghai        # 容器日志时间；看板时间服务端固定按东八区计算，不受影响
+      - KD_PASSWORD=change-me   # 建议改成自己的密码；不设则首次启动自动生成（见容器日志）

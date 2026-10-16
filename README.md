@@ -5,14 +5,17 @@ Kindle 墨水屏家庭看板：待办清单（时段过滤/每日重置）、天
 ## 运行
 
 ```bash
-# Docker
+# Docker：直接用 CI 构建好的镜像（main 每次提交自动更新）
+docker compose -f docker-compose.image.yml up -d
+
+# 或本地构建
+docker compose up -d
+
+# 或 docker run
 docker run -d --name kindledashboard --restart unless-stopped \
   -p 41241:41241 -v kindle-data:/data \
-  -e KD_PASSWORD=你的密码 \
+  -e TZ=Asia/Shanghai -e KD_PASSWORD=你的密码 \
   ghcr.io/zevalain/kindledashboard:latest
-
-# 或 docker compose（本仓库根目录）
-docker compose up -d
 
 # 或源码
 pip install -r requirements.txt && python app.py

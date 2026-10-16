@@ -1,7 +1,7 @@
 services:
   kindle-dashboard:
-    # 本地构建；想直接用 CI 产物可改为：
-    # image: ghcr.io/zevalain/kindledashboard:latest
+    # 版本一：本地构建（改了代码想立即生效用这个）
+    # 直接用 CI 产物的版本见 docker-compose.image.yml
     build: .
     container_name: kindle-dashboard
     restart: unless-stopped
@@ -10,5 +10,5 @@ services:
     volumes:
       - ./data:/data        # 配置、待办、缓存、密钥全在这里，备份这个目录即可
     environment:
+      - TZ=Asia/Shanghai        # 容器日志时间；看板时间服务端固定按东八区计算，不受影响
       - KD_PASSWORD=change-me   # 建议改成自己的密码；不设则首次启动自动生成（见容器日志）
-      # - TZ=Asia/Shanghai      # 服务端时间固定用东八区计算，此项仅影响容器内日志时间

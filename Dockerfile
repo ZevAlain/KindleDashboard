@@ -3,9 +3,16 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    KD_HOME=/data
+    KD_HOME=/data \
+    TZ=Asia/Shanghai
 
 WORKDIR /app
+
+# tzdata：让 TZ=Asia/Shanghai 生效（slim 基础镜像不保证自带）。
+# 应用本身固定按东八区计算看板时间，这里只影响容器日志时间。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 # 依赖单独一层：代码改动时不重装
 COPY requirements.txt .
