@@ -11,9 +11,9 @@ docker compose -f docker-compose.image.yml up -d
 # 或本地构建
 docker compose up -d
 
-# 或 docker run（bind mount：数据落在当前目录 data/，备份就是复制文件夹）
+# 或 docker run（volume 不存在时会自动创建）
 docker run -d --name kindledashboard --restart unless-stopped \
-  -p 41241:41241 -v $(pwd)/data:/data \
+  -p 41241:41241 -v kindle-data:/data \
   -e TZ=Asia/Shanghai -e KD_PASSWORD=你的密码 \
   ghcr.io/zevalain/kindledashboard:latest
 
@@ -39,20 +39,37 @@ pip install -r requirements.txt && python app.py
 
 ## 数据与备份
 
-全在 `KD_HOME`（Docker 内为 `/data` 卷）：`data.json`（待办与配置，`.bak` 为上一版本，损坏自动回退）、`.runtime_secrets`（密码与 session 密钥）、`cache/`、`static/emoji/`（这两项删了会自动重建）。数据含家庭隐私，勿提交仓库。
+数据全在名为 **`kindle-data`** 的 Docker volume（容器内挂载为 `/data`）：`data.json`（待办与配置，`.bak` 为上一版本，损坏自动回退）、`.runtime_secrets`（密码与 session 密钥）、`cache/`、`static/emoji/`（这两项删了会自动重建）。日常备份只需 `data.json` 一个文件（原子写，容器运行中直接拷也安全）。数据含家庭隐私，勿提交仓库。
 
-**日常备份只需 `data.json` 一个文件**（原子写，容器运行中直接拷也安全）：
+**没有 volume 时怎么创建**（`docker run -v` 和 compose 都会自动创建，通常不必手动做；只有"新机器先灌数据再起容器"时才需要先建好）：
 
 ```bash
-# bind mount（compose / 推荐）：就是普通目录
-cp data/data.json ~/backup/data-$(date +%Y%m%d).json
-# named volume（docker run -v kindle-data:/data）：
+docker volume create kindle-data
+```
+
+**备份 data.json 出来**：
+
+```bash
+# 容器正在跑（最简单）：
 docker cp kindledashboard:/data/data.json ~/backup/data-$(date +%Y%m%d).json
 
-# 导入
-cp ~/backup/data-20261016.json data/data.json && docker compose restart
-# 或
-docker cp ~/backup/data-20261016.json kindledashboard:/data/data.json && docker restart kindledashboard
+# 容器没在跑（借一次性 alpine 容器读 volume）：
+docker run --rm -v kindle-data:/data:ro -v $(pwd):/backup alpine \
+  cp /data/data.json /backup/data.json
+```
+
+**导入 data.json 到 volume**：
+
+```bash
+# 容器正在跑：
+docker cp ~/backup/data-20261016.json kindledashboard:/data/data.json
+docker restart kindledashboard
+
+# 容器没在跑 / 新机器（先建 volume 再灌数据，然后才起容器）：
+docker volume create kindle-data
+docker run --rm -v kindle-data:/data -v $(pwd):/backup alpine \
+  cp /backup/data-20261016.json /data/data.json
+docker compose -f docker-compose.image.yml up -d
 ```
 
 **整卷迁移**（连密码/缓存一起搬）：

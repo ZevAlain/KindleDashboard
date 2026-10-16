@@ -8,7 +8,11 @@ services:
     ports:
       - "41241:41241"
     volumes:
-      - ./data:/data        # 配置、待办、缓存、密钥全在这里，备份这个目录即可
+      - kindle-data:/data        # 配置、待办、缓存、密钥全在 volume 里，备份见 README
     environment:
       - TZ=Asia/Shanghai        # 容器日志时间；看板时间服务端固定按东八区计算，不受影响
       - KD_PASSWORD=change-me   # 建议改成自己的密码；不设则首次启动自动生成（见容器日志）
+
+volumes:
+  kindle-data:
+    name: kindle-data            # 固定卷名（不带 compose 项目前缀），docker run / docker cp 命令通用
