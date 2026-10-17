@@ -13,7 +13,8 @@ from .config import API_SOURCES, APP_VERSION, CN_TZ, WEEKDAY_CN, now_cn
 from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_locked,
                    _norm_city_list, _norm_display, _norm_special_dates,
                    _shuffle_items_for_day, get_data, item_meta, item_visible,
-                   gen_client_id, load_data, normalize, save_data, valid_item_time)
+                   gen_client_id, load_data, normalize, save_data,
+                   valid_item_freq, valid_item_time)
 from .emoji import convert_emoji_to_html
 from .geocode import geocode_search
 from .holidays import get_holiday_events, nearest_holiday
@@ -110,15 +111,17 @@ def _clip_countdown_name(name):
 
 
 def _special_next_dates(data, now):
-    """重要日子（生日/纪念日）的下一次发生日，返回 [(date_str, name)] 按日期升序。
+    """重要日子（生日/纪念日）的下一次发生日，返回 [(date_str, name, remind)] 按日期升序。
     公历每年=今年该月日（已过取明年）；公历每月=本月该日（已过取下月）；
-    农历=今年农历该日（已过取明年农历）。永不抛异常、永不联网。"""
+    农历=今年农历该日（已过取明年农历）。remind=可选提醒语（当天显示在待办顶部）。
+    永不抛异常、永不联网。"""
     out = []
     today = now.date()
     for b in (data.get("special_dates") or []):
         nm = str(b.get("name") or "").strip()
         if not nm:
             continue
+        rm = str(b.get("remind") or "").strip()
         parts = str(b.get("date") or "").split("-")
         try:
             mi, di = int(parts[-2]), int(parts[-1])
@@ -129,7 +132,7 @@ def _special_next_dates(data, now):
                 for ly in (today.year, today.year + 1):
                     d2 = lunar_to_solar(ly, mi, di, bool(b.get("leap")))
                     if d2 and d2 >= today:
-                        out.append((d2.strftime("%Y-%m-%d"), nm))
+                        out.append((d2.strftime("%Y-%m-%d"), nm, rm))
                         break
             elif str(b.get("freq") or "yearly") == "monthly":
                 ny2, nm2 = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
@@ -139,7 +142,7 @@ def _special_next_dates(data, now):
                     except ValueError:
                         continue          # 本月没有 31/30 号：试下月
                     if d2 >= today:
-                        out.append((d2.strftime("%Y-%m-%d"), nm))
+                        out.append((d2.strftime("%Y-%m-%d"), nm, rm))
                         break
             else:
                 for yy in (today.year, today.year + 1):
@@ -148,7 +151,7 @@ def _special_next_dates(data, now):
                     except ValueError:
                         continue          # 2-29 之类：非闰年跳过取明年
                     if d2 >= today:
-                        out.append((d2.strftime("%Y-%m-%d"), nm))
+                        out.append((d2.strftime("%Y-%m-%d"), nm, rm))
                         break
         except Exception:
             continue
@@ -172,7 +175,7 @@ def _base_view(data, now, cy=None, cm=None):
     # 页眉倒计时：重要日子（生日/纪念日）与法定节日/节气合并，取**最近**的一个显示——
     # 自己设的日子比节气更个性化，排在它前面时优先显示（"距 妈妈生日 还有 3 天"）。
     nearest = nearest_holiday(now)
-    for ds, nm in _special_next_dates(data, now)[:1]:
+    for ds, nm, _rm in _special_next_dates(data, now)[:1]:
         if nearest is None or ds < nearest[1]:
             nearest = (nm, ds)
     holiday = None
@@ -207,6 +210,12 @@ def _base_view(data, now, cy=None, cm=None):
         "motto_author": motto_author,       # 空串时不渲染第二行（本地语料无署名）
         "holiday_text": holiday,
         "holiday_html": (convert_emoji_to_html("🗓️ " + holiday, allow_net=False) if holiday else ""),
+        # 今天发生且填了提醒语的重要日子 → 待办列表顶部的祝贺条目（纯展示不可勾选）：
+        # "♥ 今天是 妈妈生日 · 记得说生日快乐呦"；remind 每条独立自定义（自己的生日
+        # 就写"犒劳一下自己"），空 = 不提醒
+        "celebrate": [{"name": nm, "remind": rm}
+                      for ds, nm, rm in _special_next_dates(data, now)
+                      if ds == now.strftime("%Y-%m-%d") and rm],
         # 世界时间面板（页内展开/收回）：家 + admin 配置城市，离线解析
         "world": world_rows(now, data.get("world_cities")),
         # 万年历面板（页内展开/收回）：整月格子 + 今日黄历（离线计算）
@@ -634,7 +643,7 @@ def register_views(app):
                 "time": valid_item_time(it.get('time')),
                 "text_html": convert_emoji_to_html(text),
                 "checked": bool(it.get('checked', False)),
-                "freq": str(it.get('freq') or "daily"),
+                "freq": valid_item_freq(it.get('freq')),
                 "is_daily": (str(it.get('freq') or "daily") == "daily"),
                 "period_ids": [str(x) for x in (it.get('period_ids') or [])]
             })

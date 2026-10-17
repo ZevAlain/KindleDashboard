@@ -368,6 +368,7 @@
 
       function freqOptions(cur) {
         cur = cur || 'daily';
+        var isOnce = (cur || '').indexOf('date:') === 0;
         var html = '<option value="daily"' + (cur === 'daily' ? ' selected' : '') + '>每天</option>';
         var days = ['一', '二', '三', '四', '五', '六', '日'];
         var week = '';
@@ -382,7 +383,26 @@
           mon += '<option value="' + mv + '"' + (cur === mv ? ' selected' : '') + '>每月' + m + '日</option>';
         }
         html += '<optgroup label="每月">' + mon + '</optgroup>';
+        html += '<option value="date:"' + (isOnce ? ' selected' : '') + '>仅一次</option>';
         return html;
+      }
+
+      function onFreqChange(i, val) {
+        // 选「仅一次」时补出日期选择（当天出现、过后自动消失）；
+        // 选其他周期时若原来带 date: 前缀则清掉，避免残留半截频率值
+        var it = state.items[i];
+        if (val === 'date:') {
+          var m = (it.freq || '').match(/^date:(\d{4}-\d{2}-\d{2})$/);
+          it.freq = 'date:' + (m ? m[1] : (new Date().getFullYear() + '-12-31'));
+        } else {
+          it.freq = val;
+        }
+        renderItems();
+      }
+
+      function onOnceDateChange(i, val) {
+        if (!val) return;
+        state.items[i].freq = 'date:' + val;   // 无需重渲染：只改值
       }
 
       function renderPeriods() {
@@ -454,7 +474,10 @@
             '</div>' +
             '<div class="pchecks">' +
               '<input class="item-time-input" type="time" title="时间（可选，填了显示在事项副标题前）" value="' + esc(it.time || '') + '" onchange="state.items[' + i + '].time=this.value">' +
-              '<select class="freq-select" title="重复周期" onchange="state.items[' + i + '].freq=this.value">' + freqOptions(it.freq) + '</select>' +
+              '<select class="freq-select" title="重复周期" onchange="onFreqChange(' + i + ', this.value)">' + freqOptions(it.freq) + '</select>' +
+              ((it.freq || '').indexOf('date:') === 0
+                ? '<input type="date" title="仅一次：该日出现在看板，过后自动消失" value="' + esc(it.freq.slice(5)) + '" onchange="onOnceDateChange(' + i + ', this.value)">'
+                : '') +
               (checks || '<span class="muted">不勾选时段 = 全天显示</span>') +
               '<span class="mv" title="上移" onclick="moveItem(' + i + ',-1)">&#x2191;</span>' +
               '<span class="mv" title="下移" onclick="moveItem(' + i + ',1)">&#x2193;</span>' +
@@ -900,6 +923,7 @@
                 '<option value="lunar"' + (lunar ? ' selected' : '') + '>农历</option>' +
               '</select>' +
               dateCtrl +
+              '<input type="text" title="提醒语（可选）：当天在待办列表顶部显示「♥ 今天是 名字 · 提醒语」，留空不提醒；自己的生日可写「犒劳一下自己」" placeholder="提醒语(选)" style="width:130px; flex:0 0 auto; padding:7px 9px; font-size:13px; border:1px solid #d5dae3; border-radius:8px;" value="' + esc(b.remind || '') + '" oninput="state.special_dates[' + i + '].remind=this.value">' +
               '<button type="button" class="rmb" onclick="delSpecialDate(' + i + ')">删除</button>' +
             '</div>';
           el.appendChild(row);

@@ -131,10 +131,9 @@ def normalize(data):
         it.setdefault("period_ids", [])
         # 可选时间标签（"HH:MM"，空 = 不显示）：旧数据没有该键；非法格式清空
         it["time"] = valid_item_time(it.get("time"))
-        # 迁移：旧版用 is_daily 布尔；新版用 freq（daily / weekly:N / monthly:N）。
-        # 旧数据所有事项都每天显示，故统一迁移为 daily，不改变原有显示行为。
-        if not it.get("freq"):
-            it["freq"] = "daily"
+        # 迁移：旧版用 is_daily 布尔；新版用 freq（daily / weekly:N / monthly:N / date:YYYY-MM-DD）。
+        # date: 频率格式校验：非法（如手改出来的坏值）回退 daily，不静默改变其他行为。
+        it["freq"] = valid_item_freq(it.get("freq"))
     # 补齐新字段：世界时区 / 重要日子 / 显示开关（旧 data.json 没有这些键）
     wc = data.get("world_cities")
     if not isinstance(wc, list):
@@ -209,6 +208,10 @@ def _norm_special_dates(v, _collect=None):
         rec = {"name": name, "date": ds, "cal": cal}
         if cal == 'lunar' and bool(b.get('leap')):
             rec["leap"] = True
+        # 可选提醒语：当天在待办列表顶部出现"♥ 今天是 XX · 提醒语"（空 = 不提醒）
+        remind = str(b.get('remind') or '').strip()[:30]
+        if remind:
+            rec["remind"] = remind
         if freq == 'monthly':
             rec["freq"] = 'monthly'            # 公历专用：每月这一天都标记（农历天然按年）
         if not any(r["name"] == name and r["date"] == ds for r in out):
@@ -277,11 +280,26 @@ def period_active(p, now):
         return a <= t < b
     return t >= a or t < b
 
+def valid_item_freq(f):
+    """校验事项频率：daily / weekly:1-7 / monthly:1-28 / date:YYYY-MM-DD。
+    date: 格式非法（手改坏值）回退 daily——save 与 normalize 两条路径都过这里。"""
+    f = str(f or "daily").strip() or "daily"
+    if f.startswith("date:") and not re.match(r"^date:\d{4}-\d{2}-\d{2}$", f):
+        return "daily"
+    return f
+
+
 def freq_active(freq, now):
-    """判断事项此刻是否按周期显示。daily=每天；weekly:N=周N(1=一..7=日)；monthly:N=N号(1-28)。"""
+    """判断事项此刻是否按周期显示。daily=每天；weekly:N=周N(1=一..7=日)；monthly:N=N号(1-28)；
+    date:YYYY-MM-DD=仅一次（只在该公历日出现，过后自动消失，无需手动删）。"""
     f = (freq or "daily").strip() or "daily"
     if f == "daily":
         return True
+    if f.startswith("date:"):
+        try:
+            return now.date().isoformat() == f.split(":", 1)[1]
+        except Exception:
+            return True
     if f.startswith("weekly:"):
         try:
             return now.isoweekday() == int(f.split(":", 1)[1])
@@ -296,10 +314,16 @@ def freq_active(freq, now):
 
 
 def freq_label(freq):
-    """周期在显示页的简短标签：每天 / 周二 / 5号。"""
+    """周期在显示页的简短标签：每天 / 周二 / 5号 / 10月20日。"""
     f = (freq or "daily").strip() or "daily"
     if f == "daily":
         return "每天"
+    if f.startswith("date:"):
+        try:
+            d = datetime.strptime(f.split(":", 1)[1], "%Y-%m-%d")
+            return "%d月%d日" % (d.month, d.day)
+        except Exception:
+            return "仅一次"
     if f.startswith("weekly:"):
         try:
             return WEEKDAY_CN[int(f.split(":", 1)[1])]

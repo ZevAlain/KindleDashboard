@@ -106,6 +106,9 @@
         /* 列表标题：待办区左上角，让这一块有个明确的开头（原来第一条直接顶着页眉，很突兀） */
         .list-title { font-size: 22px; font-weight: 800; color: #000000;   /* 与万年历/世界时间/天气面板标题同款（22/800/ls2） */
                       letter-spacing: 2px; margin: 6px 0 2px; }
+        .celebrate { border: 2px solid #000000; border-radius: 8px; padding: 8px 10px;
+                     font-size: 20px; font-weight: 700; color: #000000; text-align: center;
+                     margin: 8px 0; }   /* 祝贺条目：黑框居中与普通待办区分（20/700 保证墨水屏实黑） */
         a.toggle-btn {
             text-decoration: none;
             color: #000000;
@@ -465,6 +468,11 @@
            放在面板之前：JS 挂了时默认显示的仍是待办，不会卡在空屏上 #}
         <div class="list-view" id="listView"{% if panel != 'todo' %} style="display:none"{% endif %}>
         <div class="list-title">当前时段待办</div>
+        {# 今天的重要日子（填了提醒语的）：祝贺条目在待办最顶，纯展示不可勾选（不是任务）。
+           remind 每条独立自定义：妈妈生日"记得说生日快乐呦"、自己的生日"犒劳一下自己" #}
+        {% for c in data['celebrate'] %}
+        <div class="celebrate">♥ 今天是 {{ c['name'] }}{% if c['remind'] %} · {{ c['remind'] }}{% endif %}</div>
+        {% endfor %}
         {% if data['items'] %}
         <ul>
             {% for item in data['items'] %}
