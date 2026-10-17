@@ -514,6 +514,23 @@ def register_views(app):
             return jsonify({"ok": False, "q": q, "error": str(e), "results": []})
 
 
+    @app.route('/land/<int:n>', methods=['POST'])
+    @login_required
+    def set_land(n):
+        """页脚切换屏幕方向时记住所选方向（写为服务端默认）：
+        Kindle 休眠唤醒/锁屏重启后浏览器常会丢掉 URL 参数（含 ?land=），
+        重新打开时按这里记住的方向渲染——"最后使用的方向"就是期望方向，
+        不会再意外回退成竖屏。方向必须在 admin 开放的白名单内。"""
+        with DATA_LOCK:
+            data = _get_data_locked()
+            modes = data.get("land_modes") or [0, 1, 2, 3]
+            if n not in modes:
+                return jsonify({"ok": False, "error": "该方向未开放"}), 400
+            data["default_land"] = n
+            save_data(data)
+        return jsonify({"ok": True})
+
+
     @app.route('/api/lunar_convert')
     @login_required
     def api_lunar_convert():

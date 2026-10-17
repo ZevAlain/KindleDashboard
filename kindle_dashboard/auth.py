@@ -23,9 +23,9 @@ def check_auth():
         except Exception:
             matched = False
         if matched:
-            # ?key= 只放行 display / toggle（看板+勾选），其余端点（/admin、
-            # /admin/save、/api/*）必须走密码登录，也不建立任何会话。
-            if (request.endpoint or '') in ('display', 'toggle_item'):
+            # ?key= 只放行 display / toggle / set_land（看板+勾选+记住屏幕方向），
+            # 其余端点（/admin、/admin/save、/api/*）必须走密码登录，也不建立任何会话。
+            if (request.endpoint or '') in ('display', 'toggle_item', 'set_land'):
                 return True
     return False
 

@@ -88,6 +88,7 @@
         .cmp-bar { display: flex; justify-content: space-between; align-items: baseline;
                    font-size: 18px; font-weight: 700; letter-spacing: 2px; color: #000000;
                    margin: 6px 0 2px; }
+        .cmp-title { font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #000000; }   /* 与万年历/世界时间标题同款（22/800/ls2） */
         .panel-close { font-size: 15px; font-weight: 600; letter-spacing: 1px; color: #000000;
                        text-decoration: none; margin-left: 12px; padding: 6px 0; }   /* 共用"收起"样式：天气对比/世界时间同款纯文字（无框） */
         .cmp-table { width: 100%; border-collapse: collapse; }
@@ -545,6 +546,13 @@
           }
         }
         keep.push('land=' + next);   // 连 0 也显式写：URL 缺 land 参数时服务端按 admin 默认方向渲染
+        // 把所选方向记到服务端（fire-and-forget）：Kindle 休眠唤醒/重启丢 URL 参数后，
+        // 重新打开按"最后使用的方向"渲染，倒放不会回退成竖屏。失败不影响本地切换。
+        try {
+          var _lurl = '/land/' + next + (location.search || '');   // query 里的 ?key= 一并带上（免登录通路）
+          if (navigator.sendBeacon) { navigator.sendBeacon(_lurl); }
+          else { var _lx = new XMLHttpRequest(); _lx.open('POST', _lurl, false); _lx.send(null); }
+        } catch (e) {}
         try {
           location.replace(location.pathname + (keep.length ? '?' + keep.join('&') : '') + location.hash);
         } catch (e) { location.reload(); }
@@ -736,8 +744,11 @@
           c.style.fontSize = size + 'px';
         } catch (e) {}
       }
-      // 只挂在 load（布局稳定后）上：脚本执行时立刻 fitClock 会量到偏窄的列宽，
-      // 首次刷新时钟先画小、稍后 load 再被改正，e-ink 上能看到明显"先小后大"跳变
+      // 时钟字号：脚本执行时（body 末尾，DOM 已完整）立即算一次——浏览器首帧
+      // 渲染前 style 已生效，用户看到的第一帧就是正确字号，不再"先小后大"；
+      // load 后再校正一次兜底（字体度量/滚动条等导致的微小偏差），跳动可忽略。
+      // （老注释里"立即调用会量到偏窄"的场景由 load 校正兜住，首帧近似值也远优于 CSS 小兜底值。）
+      fitClock();
       window.addEventListener('resize', function () { fitViewport(); fitClock(); });
       window.addEventListener('load', fitClock);
 
