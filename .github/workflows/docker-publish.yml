@@ -52,6 +52,8 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: kindledashboard:smoke
+          build-args: |
+            APP_VERSION=sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -80,5 +82,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

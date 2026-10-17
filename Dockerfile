@@ -1,10 +1,14 @@
 # syntax=docker/dockerfile:1
 FROM python:3.12-slim
 
+# CI 构建时注入 git sha（本地构建缺省 dev）：display 页脚显示，
+# 用于确认 Kindle 是否吃到最新页面（其磁盘缓存很顽固）
+ARG APP_VERSION=dev
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     KD_HOME=/data \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 

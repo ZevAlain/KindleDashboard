@@ -9,7 +9,7 @@ from flask import make_response, redirect, render_template, request, session, js
 
 from .api_status import _api_status
 from .auth import login_required
-from .config import API_SOURCES, CN_TZ, WEEKDAY_CN, now_cn
+from .config import API_SOURCES, APP_VERSION, CN_TZ, WEEKDAY_CN, now_cn
 from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_locked,
                    _norm_city_list, _norm_display, _norm_special_dates,
                    _shuffle_items_for_day, get_data, item_meta, item_visible,
@@ -383,6 +383,7 @@ def register_views(app):
         # 无 cookie 的 Kindle 上 <a> 回退通路不再掉登录页，勾完也回到当前视图。
         kindle["toggle_q"] = ("?" + urllib.parse.urlencode(list(request.args.items()))
                               if request.args else "")
+        kindle["app_version"] = APP_VERSION          # 页脚小字：确认 Kindle 是否吃到最新页面
         kindle["items"] = [
             {
                 "id": it["id"],

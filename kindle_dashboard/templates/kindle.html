@@ -147,6 +147,8 @@
         .empty { font-size: 20px; color: #000000; margin-top: 24px; }
         .emj { height: 1em; width: 1em; vertical-align: -0.12em; display: inline-block; }
         /* 页脚：按钮在左（图标按钮横排：刷新、横版并排一行，省高度），名言在右（占剩余空间）。 */
+        .footer-btns .ver { font-size: 10px; color: #999999; align-self: center; margin-right: 4px;
+                            -webkit-flex: 0 0 auto; flex: 0 0 auto; }   /* 版本号：诊断用小灰字 */
         .footer {
             display: flex;
             align-items: center;
@@ -494,6 +496,8 @@
 
     <div class="footer pane">
         <div class="footer-btns">
+            {# 版本号（CI 注入 git sha）：Kindle 看不到地址栏，靠它确认页面是否最新（磁盘缓存很顽固） #}
+            <span class="ver" title="页面版本">{{ data['app_version'] }}</span>
             {# 刷新：带上当前 query（key / 横版 ?land=1 / 万年历 ?y=&m=），不然一刷全被清掉 #}
             <a class="icon-btn" href="{{ request.full_path }}" title="立即刷新页面">
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15A9 9 0 1 1 14.85 2.64L23 10"></path></svg>
