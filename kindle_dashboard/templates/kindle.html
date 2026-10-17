@@ -604,6 +604,10 @@
         var h = (location.hash || '').replace(/^#/, '');
         return (h === 'world' || h === 'cal' || h === 'cmp') ? h : '';
       }
+      function _urlPanelNow() {
+        var m = (location.search || '').match(/[?&]panel=([^&#]*)/);
+        return m ? m[1] : '';
+      }
       function _writePanel(name) {
         var want = (name && name !== 'todo') ? name : '';
         // 重建 query：换掉旧 panel 参数，其余（key / land / y / m）全部保留
@@ -615,13 +619,24 @@
         }
         if (want) keep.push('panel=' + want);
         var newUrl = location.pathname + (keep.length ? '?' + keep.join('&') : '') + (want ? '#' + want : '');
+        // Kindle 老 WebKit 的 history.replaceState 可能**静默不生效**（不抛错、
+        // 地址栏不变）——panel 永远写不进 URL，刷新必回待办；而 localStorage 与
+        // cookie 在真机上同样被禁用，没有任何兜底可用。所以 replaceState 之后
+        // 必须**读回地址栏验证**；没生效就走 location.replace 真实导航，把 panel
+        // 真正放进 URL。老设备上这会整页刷新一次（墨水屏切面板本就全刷，可接受），
+        // 换来之后 meta 自动刷新 / 手动刷新 100% 保持面板。
+        // 防死循环：真导航到达的新页面 URL 已带 panel，加载后 setPanel -> 再次
+        // _writePanel 时 _urlPanelNow() === want 校验通过，不会再触发导航。
         try {
-          if (window.history && history.replaceState) {     // 不产生历史记录、不触发滚动、不整页刷新
+          if (window.history && history.replaceState) {
             history.replaceState(null, '', newUrl);
-            return;
+            if (_urlPanelNow() === want) {
+              return;                     // replaceState 真的生效了（现代浏览器走这里）
+            }
           }
         } catch (e) {}
-        // 老内核/Kindle：replaceState 不可靠时退回整页替换（会闪一下，但状态务必落进地址栏）
+        // 老 WebKit / replaceState 静默失效：真实导航（URL 真实改变，刷新后
+        // 服务端按它直出首帧、JS 也能从 URL 恢复）
         try { location.replace(newUrl); } catch (e2) { try { location.hash = want; } catch (e3) {} }
       }
       // 页面首次加载时恢复上次的面板：query > 片段 > localStorage；读不到就当没开。
