@@ -383,7 +383,6 @@ def register_views(app):
         # 无 cookie 的 Kindle 上 <a> 回退通路不再掉登录页，勾完也回到当前视图。
         kindle["toggle_q"] = ("?" + urllib.parse.urlencode(list(request.args.items()))
                               if request.args else "")
-        kindle["app_version"] = APP_VERSION          # 页脚小字：确认 Kindle 是否吃到最新页面
         kindle["items"] = [
             {
                 "id": it["id"],
@@ -445,7 +444,9 @@ def register_views(app):
     @login_required
     def admin():
         data = get_data()
-        return render_template('admin.html', data=data, data_json=data)
+        # 版本号在此显示（不侵占 display 空间）：单一来源 config.APP_VERSION（CI 注入）
+        return render_template('admin.html', data=data, data_json=data,
+                               app_version=APP_VERSION)
 
 
     @app.route('/admin/export')

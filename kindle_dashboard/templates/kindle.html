@@ -147,8 +147,6 @@
         .empty { font-size: 20px; color: #000000; margin-top: 24px; }
         .emj { height: 1em; width: 1em; vertical-align: -0.12em; display: inline-block; }
         /* 页脚：按钮在左（图标按钮横排：刷新、横版并排一行，省高度），名言在右（占剩余空间）。 */
-        .footer-btns .ver { font-size: 10px; color: #999999; align-self: center; margin-right: 4px;
-                            -webkit-flex: 0 0 auto; flex: 0 0 auto; }   /* 版本号：诊断用小灰字 */
         .footer {
             display: flex;
             align-items: center;
@@ -496,8 +494,6 @@
 
     <div class="footer pane">
         <div class="footer-btns">
-            {# 版本号（CI 注入 git sha）：Kindle 看不到地址栏，靠它确认页面是否最新（磁盘缓存很顽固） #}
-            <span class="ver" title="页面版本">{{ data['app_version'] }}</span>
             {# 刷新：带上当前 query（key / 横版 ?land=1 / 万年历 ?y=&m=），不然一刷全被清掉 #}
             <a class="icon-btn" href="{{ request.full_path }}" title="立即刷新页面">
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15A9 9 0 1 1 14.85 2.64L23 10"></path></svg>
@@ -608,10 +604,6 @@
         var h = (location.hash || '').replace(/^#/, '');
         return (h === 'world' || h === 'cal' || h === 'cmp') ? h : '';
       }
-      function _urlPanelNow() {
-        var m = (location.search || '').match(/[?&]panel=([^&#]*)/);
-        return m ? m[1] : '';
-      }
       function _writePanel(name) {
         var want = (name && name !== 'todo') ? name : '';
         // 重建 query：换掉旧 panel 参数，其余（key / land / y / m）全部保留
@@ -623,25 +615,17 @@
         }
         if (want) keep.push('panel=' + want);
         var newUrl = location.pathname + (keep.length ? '?' + keep.join('&') : '') + (want ? '#' + want : '');
-        // Kindle 老 WebKit 的 history.replaceState 可能**静默不生效**（不抛错、
-        // 地址栏不变）——panel 永远写不进 URL，刷新必回待办；而 localStorage 与
-        // cookie 在真机上同样被禁用，没有任何兜底可用。所以 replaceState 之后
-        // 必须**读回地址栏验证**；没生效就走 location.replace 真实导航，把 panel
-        // 真正放进 URL。老设备上这会整页刷新一次（墨水屏切面板本就全刷，可接受），
-        // 换来之后 meta 自动刷新 / 手动刷新 100% 保持面板。
-        // 防死循环：真导航到达的新页面 URL 已带 panel，加载后 setPanel -> 再次
-        // _writePanel 时 _urlPanelNow() === want 校验通过，不会再触发导航。
-        try {
-          if (window.history && history.replaceState) {
-            history.replaceState(null, '', newUrl);
-            if (_urlPanelNow() === want) {
-              return;                     // replaceState 真的生效了（现代浏览器走这里）
-            }
-          }
-        } catch (e) {}
-        // 老 WebKit / replaceState 静默失效：真实导航（URL 真实改变，刷新后
-        // 服务端按它直出首帧、JS 也能从 URL 恢复）
-        try { location.replace(newUrl); } catch (e2) { try { location.hash = want; } catch (e3) {} }
+        // Kindle 老 WebKit 上**一切 JS 改 URL 的手段都不可信**：replaceState 静默失效、
+        // 甚至 JS 的 location 对象显示"已更新"而真实地址栏没变（读回校验会被骗过）。
+        // 刷新用的是真实地址栏 → panel 丢失 → 回待办。因此放弃"无刷新切换"：
+        // 一律用最古老的 location.href 真实导航，URL 100% 真实携带 panel——
+        // meta 自动刷新 / 手动刷新 / 唤醒重开全部保持。墨水屏上任何内容变化
+        // 本来就是全屏重刷，无刷新切换在 Kindle 上没有任何观感收益。
+        // 防死循环：当前 URL 已含目标 panel 时不导航（真导航到达的新页面
+        // URL 已带 panel，加载后 setPanel 再调本函数会在此返回）。
+        if (want && location.href.indexOf('panel=' + want) >= 0) return;
+        if (!want && location.href.indexOf('panel=') < 0) return;
+        try { location.href = newUrl; } catch (e) { try { location.hash = want; } catch (e2) {} }
       }
       // 页面首次加载时恢复上次的面板：query > 片段 > localStorage；读不到就当没开。
       // 降级只影响"整页自动刷新后是否还开着"，不影响开关交互本身。
