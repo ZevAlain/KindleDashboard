@@ -403,10 +403,16 @@ def register_views(app):
         _modes = data.get("land_modes") or [0, 1, 2, 3]
         kindle["land_modes"] = _modes
         kindle["land_next_landscape"] = _next_land(int(land), _modes) in (1, 3)   # 图标：下一方向是横版(90/270)→横屏图标
-        # 面板展开状态（待办/天气对比/世界时钟/万年历）的主持久化通路就是 URL ?panel=
-        # （localStorage/JS 只是书签重开时的兜底）。服务端直接按它出初始 display：
-        # 面板开着时整页自动刷新不会先画待办再被 JS 切过去——墨水屏少一次重绘闪烁。
+        # 面板展开状态（待办/天气对比/世界时钟/万年历）持久化三层通路：
+        # ① URL ?panel=（主通路：正常浏览器的手动/自动刷新都保留 URL）；
+        # ② cookie kd_panel（JS setPanel 时写入）——Kindle 老 WebKit 的
+        #    history.replaceState 可能静默不生效（URL 从未真正带上 ?panel=），
+        #    localStorage 又常被禁用，cookie 是老内核上唯一可靠的跨刷新通路，
+        #    且服务端能直接读到，首帧即直出正确面板（e-ink 无跳变）；
+        # ③ 都没有 → 默认待办。
         panel = request.args.get("panel")
+        if panel not in ("world", "cal", "cmp"):
+            panel = (request.cookies.get("kd_panel") or "").strip()
         if panel not in ("world", "cal", "cmp"):
             panel = "todo"
         resp = make_response(render_template('kindle.html', data=kindle, land=land, panel=panel))
