@@ -558,7 +558,13 @@
             return r.json();
           }).then(function (j) {
             if (!j.ok) throw new Error(j.error || '导入失败');
-            alert('导入成功，页面即将刷新。');
+            var rej = j.rejected || [];
+            if (rej.length) {
+              window.alert('导入完成，但有 ' + rej.length + ' 条设置被跳过：\n\n'
+                           + rej.join('\n'));
+            } else {
+              alert('导入成功，页面即将刷新。');
+            }
             location.reload();
           }).catch(function (e) {
             alert('导入失败：' + (e.message || e));

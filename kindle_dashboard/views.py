@@ -458,16 +458,21 @@ def register_views(app):
     @app.route('/admin/import', methods=['POST'])
     @login_required
     def admin_import():
-        """导入备份（整体覆盖当前配置）。导入数据经 normalize 规范化后原子落盘。"""
+        """导入备份（整体覆盖当前配置）。导入数据经 normalize 规范化后原子落盘。
+        备份文件里夹带的非法条目（如手改出的坏日期）同样逐条告知，绝不静默丢弃。"""
         payload = request.get_json(silent=True)
         if (not isinstance(payload, dict)
                 or not isinstance(payload.get('items'), list)
                 or not isinstance(payload.get('periods'), list)):
             return jsonify({"ok": False, "error": "不是有效的看板数据文件"}), 400
+        rejected = []
+        if payload.get('special_dates') is not None:
+            payload['special_dates'] = _norm_special_dates(payload['special_dates'],
+                                                           rejected)
         data = normalize(payload)
         with DATA_LOCK:
             save_data(data)
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "rejected": rejected})
 
 
     @app.route('/toggle/<item_id>', methods=['GET', 'POST'])
