@@ -93,20 +93,29 @@ def get_holiday_events(now):
 def holiday_line(now):
     """最近一个节日/节气（含跨到次年）的单行文案：今天命中=“今天是 X”，否则“距 X 还有 n 天”；无事件返回 None。"""
     try:
-        events = get_holiday_events(now)
-        if not events:
+        nxt = nearest_holiday(now)
+        if not nxt:
             return None
-        today = now.strftime("%Y-%m-%d")
-        future = [e for e in events if e["date"] >= today]
-        if not future:
-            return None
-        nxt = future[0]
-        if nxt["date"] == today:
-            return "今天是 %s" % nxt["name"]
-        delta = (datetime.strptime(nxt["date"], "%Y-%m-%d").date() - now.date()).days  # 按整天差
-        return "距 %s 还有 %d 天" % (nxt["name"], delta)
+        name, ds = nxt
+        if ds == now.strftime("%Y-%m-%d"):
+            return "今天是 %s" % name
+        delta = (datetime.strptime(ds, "%Y-%m-%d").date() - now.date()).days  # 按整天差
+        return "距 %s 还有 %d 天" % (name, delta)
     except Exception:
         return None
+
+
+def nearest_holiday(now):
+    """最近的法定节日/节气，返回 (name, date_str) 或 None（供与重要日子合并比较）。"""
+    try:
+        events = get_holiday_events(now) or []
+        today = now.strftime("%Y-%m-%d")
+        for e in events:
+            if str(e.get("date") or "") >= today:
+                return str(e.get("name") or ""), str(e["date"])
+    except Exception:
+        pass
+    return None
 
 
 # ----------------- 页脚鼓励语（一言 API + 本地语料兜底，避免永远同一句） -----------------

@@ -16,7 +16,7 @@ from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_lock
                    gen_client_id, load_data, normalize, save_data, valid_item_time)
 from .emoji import convert_emoji_to_html
 from .geocode import geocode_search
-from .holidays import get_holiday_events, holiday_line
+from .holidays import get_holiday_events, nearest_holiday
 from .lunardate import (_LUNAR_DAY_CN, _LUNAR_MONTH_CN, huangli_day,
                         lunar_date_cn, lunar_to_solar, solar_to_lunar)
 from .motto import _motto_trim, get_motto, split_motto
@@ -102,6 +102,59 @@ def _power_plan(data):
             "ping_ms": plan["ping_ms"],
             "canvas_ms": plan["canvas_ms"]}
 
+def _clip_countdown_name(name):
+    """倒计时名字截断保护：页眉节日行独占一行、16px、竖屏 600px 宽（容量 30+ 字），
+    名字留 10 个汉字上限已非常宽裕；超长截为前 9 字 + …，防极端长名撑破页眉。"""
+    name = str(name or "").strip()
+    return name if len(name) <= 10 else name[:9] + "…"
+
+
+def _special_next_dates(data, now):
+    """重要日子（生日/纪念日）的下一次发生日，返回 [(date_str, name)] 按日期升序。
+    公历每年=今年该月日（已过取明年）；公历每月=本月该日（已过取下月）；
+    农历=今年农历该日（已过取明年农历）。永不抛异常、永不联网。"""
+    out = []
+    today = now.date()
+    for b in (data.get("special_dates") or []):
+        nm = str(b.get("name") or "").strip()
+        if not nm:
+            continue
+        parts = str(b.get("date") or "").split("-")
+        try:
+            mi, di = int(parts[-2]), int(parts[-1])
+        except (ValueError, IndexError):
+            continue
+        try:
+            if str(b.get("cal") or "solar") == "lunar":
+                for ly in (today.year, today.year + 1):
+                    d2 = lunar_to_solar(ly, mi, di, bool(b.get("leap")))
+                    if d2 and d2 >= today:
+                        out.append((d2.strftime("%Y-%m-%d"), nm))
+                        break
+            elif str(b.get("freq") or "yearly") == "monthly":
+                ny2, nm2 = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+                for (yy, mm) in ((today.year, today.month), (ny2, nm2)):
+                    try:
+                        d2 = date(yy, mm, di)
+                    except ValueError:
+                        continue          # 本月没有 31/30 号：试下月
+                    if d2 >= today:
+                        out.append((d2.strftime("%Y-%m-%d"), nm))
+                        break
+            else:
+                for yy in (today.year, today.year + 1):
+                    try:
+                        d2 = date(yy, mi, di)
+                    except ValueError:
+                        continue          # 2-29 之类：非闰年跳过取明年
+                    if d2 >= today:
+                        out.append((d2.strftime("%Y-%m-%d"), nm))
+                        break
+        except Exception:
+            continue
+    return sorted(out)
+
+
 def _base_view(data, now, cy=None, cm=None):
     """整页共用骨架：hero（时钟/日期/农历/天气/节日/名言）+ 世界时间面板 + 万年历面板数据。
     字段全部读本地/缓存，display 路径永不联网。cy/cm 决定万年历面板渲染的月份
@@ -116,7 +169,23 @@ def _base_view(data, now, cy=None, cm=None):
                                 if disp.get("show_motto", True) else ("", ""))   # 页脚：第一行内容 / 第二行 ——作者
     if motto_text:
         motto_text = _motto_trim(motto_text)   # 正文超长按标点截断（缓存里的旧长句也在这里兜住）
-    holiday = holiday_line(now)
+    # 页眉倒计时：重要日子（生日/纪念日）与法定节日/节气合并，取**最近**的一个显示——
+    # 自己设的日子比节气更个性化，排在它前面时优先显示（"距 妈妈生日 还有 3 天"）。
+    nearest = nearest_holiday(now)
+    for ds, nm in _special_next_dates(data, now)[:1]:
+        if nearest is None or ds < nearest[1]:
+            nearest = (nm, ds)
+    holiday = None
+    if nearest:
+        nm, ds = _clip_countdown_name(nearest[0]), nearest[1]
+        try:
+            if ds == now.strftime("%Y-%m-%d"):
+                holiday = "今天是 %s" % nm
+            else:
+                holiday = "距 %s 还有 %d 天" % (
+                    nm, (datetime.strptime(ds, "%Y-%m-%d").date() - now.date()).days)
+        except Exception:
+            holiday = None
     # 万年历面板月份（?y=&m= 传入；越界回退当前月）
     y, m = cy, cm
     if not (1900 <= y <= 2100 and 1 <= m <= 12):
