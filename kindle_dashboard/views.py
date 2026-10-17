@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """全部路由与页面视图。register_views(app) 由 create_app 调用。"""
 import hmac
+import json
 import urllib.parse
 from datetime import date, datetime
 
@@ -12,7 +13,7 @@ from .config import API_SOURCES, CN_TZ, WEEKDAY_CN, now_cn
 from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_locked,
                    _norm_city_list, _norm_display, _norm_special_dates,
                    _shuffle_items_for_day, get_data, item_meta, item_visible,
-                   gen_client_id, load_data, save_data, valid_item_time)
+                   gen_client_id, load_data, normalize, save_data, valid_item_time)
 from .emoji import convert_emoji_to_html
 from .geocode import geocode_search
 from .holidays import get_holiday_events, holiday_line
@@ -357,6 +358,35 @@ def register_views(app):
     def admin():
         data = get_data()
         return render_template('admin.html', data=data, data_json=data)
+
+
+    @app.route('/admin/export')
+    @login_required
+    def admin_export():
+        """导出全部配置为 JSON 附件（待办/时段/天气/世界时钟/重要日子/显示开关/勾选状态）。"""
+        data = get_data()
+        body = json.dumps(data, ensure_ascii=False, indent=2)
+        fname = "kindle-dashboard-backup-%s.json" % now_cn().strftime("%Y%m%d-%H%M")
+        resp = make_response(body)
+        resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+        resp.headers['Content-Disposition'] = 'attachment; filename="%s"' % fname
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+
+
+    @app.route('/admin/import', methods=['POST'])
+    @login_required
+    def admin_import():
+        """导入备份（整体覆盖当前配置）。导入数据经 normalize 规范化后原子落盘。"""
+        payload = request.get_json(silent=True)
+        if (not isinstance(payload, dict)
+                or not isinstance(payload.get('items'), list)
+                or not isinstance(payload.get('periods'), list)):
+            return jsonify({"ok": False, "error": "不是有效的看板数据文件"}), 400
+        data = normalize(payload)
+        with DATA_LOCK:
+            save_data(data)
+        return jsonify({"ok": True})
 
 
     @app.route('/toggle/<item_id>', methods=['GET', 'POST'])

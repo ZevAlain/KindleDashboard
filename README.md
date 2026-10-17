@@ -39,50 +39,7 @@ pip install -r requirements.txt && python app.py
 
 ## 数据与备份
 
-数据全在名为 **`kindle-data`** 的 Docker volume（容器内挂载为 `/data`）：`data.json`（待办与配置，`.bak` 为上一版本，损坏自动回退）、`.runtime_secrets`（密码与 session 密钥）、`cache/`、`static/emoji/`（这两项删了会自动重建）。日常备份只需 `data.json` 一个文件（原子写，容器运行中直接拷也安全）。数据含家庭隐私，勿提交仓库。
-
-**没有 volume 时怎么创建**（`docker run -v` 和 compose 都会自动创建，通常不必手动做；只有"新机器先灌数据再起容器"时才需要先建好）：
-
-```bash
-docker volume create kindle-data
-```
-
-**备份 data.json 出来**：
-
-```bash
-# 容器正在跑（最简单）：
-docker cp kindledashboard:/data/data.json ~/backup/data-$(date +%Y%m%d).json
-
-# 容器没在跑（借一次性 alpine 容器读 volume）：
-docker run --rm -v kindle-data:/data:ro -v $(pwd):/backup alpine \
-  cp /data/data.json /backup/data.json
-```
-
-**导入 data.json 到 volume**：
-
-```bash
-# 容器正在跑：
-docker cp ~/backup/data-20261016.json kindledashboard:/data/data.json
-docker restart kindledashboard
-
-# 容器没在跑 / 新机器（先建 volume 再灌数据，然后才起容器）：
-docker volume create kindle-data
-docker run --rm -v kindle-data:/data -v $(pwd):/backup alpine \
-  cp /backup/data-20261016.json /data/data.json
-docker compose -f docker-compose.image.yml up -d
-```
-
-**整卷迁移**（连密码/缓存一起搬）：
-
-```bash
-# 导出
-docker run --rm -v kindle-data:/data:ro -v $(pwd):/backup alpine \
-  tar czf /backup/kindle-data.tar.gz -C /data .
-# 新机器导入
-docker volume create kindle-data
-docker run --rm -v kindle-data:/data -v $(pwd):/backup alpine \
-  sh -c "rm -rf /data/* && tar xzf /backup/kindle-data.tar.gz -C /data"
-```
+数据全在名为 **`kindle-data`** 的 Docker volume（容器内 `/data`）：`data.json`（全部配置与勾选状态）、`.runtime_secrets`（密码与 session 密钥），`cache/` 与 `static/emoji/` 会自动重建。**备份/导入直接用管理页「基本 → 备份与恢复」**：导出得到完整 JSON，导入即整体恢复。数据含家庭隐私，勿提交仓库。
 
 ## 已知限制
 
@@ -92,4 +49,4 @@ docker run --rm -v kindle-data:/data -v $(pwd):/backup alpine \
 
 ## License
 
-[MIT](LICENSE)
+GPL-3.0，见 [LICENSE](LICENSE)。

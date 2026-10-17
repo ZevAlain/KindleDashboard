@@ -213,6 +213,18 @@
                     <div id="dispToggles" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
                 </div>
             </section>
+
+            <section class="card">
+                <h3><span class="dot"></span>备份与恢复</h3>
+                <p class="sub">导出/导入全部配置：待办、时段、天气、世界时钟、重要日子、显示开关与勾选状态。</p>
+                <div class="row2" style="gap:12px; align-items:center;">
+                    <button type="button" class="save-btn" style="padding:9px 18px; font-size:14px;" onclick="location.href='/admin/export'">导出数据</button>
+                    <label class="save-btn" style="padding:9px 18px; font-size:14px; cursor:pointer; position:relative; overflow:hidden;">导入数据
+                        <input type="file" accept="application/json,.json" style="position:absolute; left:-9999px;" onchange="importData(this)">
+                    </label>
+                </div>
+                <div class="help-box" style="display:block;">导入会<b>整体覆盖</b>当前全部配置（勾选状态按备份文件恢复）；建议导入前先导出一份当前数据留底。导出的 JSON 即 data.json，也可用于在新机器上恢复（见 README）。</div>
+            </section>
         </div>
         </div>
 
@@ -523,6 +535,37 @@
         state.items[i] = state.items[j];
         state.items[j] = tmp;
         renderItems();
+      }
+
+      function importData(inp) {
+        // 备份导入：读文件 -> 本地 JSON 校验 -> confirm 确认覆盖 -> POST /admin/import
+        var f = inp.files && inp.files[0];
+        if (!f) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          var data;
+          try { data = JSON.parse(reader.result); }
+          catch (e) { alert('文件不是有效的 JSON。'); inp.value = ''; return; }
+          if (!window.confirm('导入将整体覆盖当前全部配置（待办/时段/天气/世界时钟/重要日子/显示开关），确定继续？')) {
+            inp.value = ''; return;
+          }
+          fetch('/admin/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          }).then(function (r) {
+            if (!r.ok) throw new Error('服务器拒绝了该文件（不是有效的看板数据）');
+            return r.json();
+          }).then(function (j) {
+            if (!j.ok) throw new Error(j.error || '导入失败');
+            alert('导入成功，页面即将刷新。');
+            location.reload();
+          }).catch(function (e) {
+            alert('导入失败：' + (e.message || e));
+            inp.value = '';
+          });
+        };
+        reader.readAsText(f, 'utf-8');
       }
 
       // ----------------- 移动端触控拖动 -----------------
