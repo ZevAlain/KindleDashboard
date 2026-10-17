@@ -10,7 +10,6 @@ from datetime import date, datetime
 
 from .config import CN_TZ, DATA_FILE, WEEKDAY_CN, now_cn
 from .emoji import ensure_html_fields
-from .lunardate import lunar_to_solar
 from .worldclock import DEFAULT_CITY_LIST, _norm_city_list
 
 DEFAULT_DATA = {
@@ -186,9 +185,14 @@ def _norm_special_dates(v):
             except ValueError:
                 continue                       # 不存在的公历日（如 2026-02-30）
         else:
-            leap = bool(b.get('leap'))
-            if di > 30 or (1900 <= yi <= 2100 and lunar_to_solar(yi, mi, di, leap) is None):
-                continue                       # 不存在的农历日（小月无三十 / 该年无此闰月）
+            # 农历：月/日数字合法即接受，**不按设置年校验该日是否存在**——
+            # "腊月三十"这类大月专属的日子在小月年份不存在（那年只有廿九），
+            # 闰月也因年而异；旧版在这里按设置年校验并把整条记录静默丢弃，
+            # 表现就是"腊月三十保存成功、刷新后凭空消失"。
+            # 是否真实存在交给展示端按年处理：换算为 None 的年份自然跳过
+            # （万年历 _cal_cells 与页眉倒计时 _special_next_dates 均已做该降级）。
+            if not (1 <= mi <= 12 and 1 <= di <= 30):
+                continue                       # 数字本身非法（13 月 / 31 日）
         freq = ('monthly' if cal == 'solar'
                 and str(b.get('freq') or 'yearly').strip().lower() == 'monthly' else 'yearly')
         rec = {"name": name, "date": ds, "cal": cal}
