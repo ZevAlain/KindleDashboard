@@ -437,11 +437,11 @@
             '<div class="main">' +
               '<span class="drag-handle" title="拖动排序（手机：按住不动再拖）">&#x2837;</span>' +
               '<input class="grow" type="text" placeholder="事项内容" value="' + esc(it.text) + '" oninput="state.items[' + i + '].text=this.value">' +
-              '<select class="freq-select" onchange="state.items[' + i + '].freq=this.value">' + freqOptions(it.freq) + '</select>' +
               '<button type="button" class="rmb" onclick="delItem(' + i + ')">删除</button>' +
             '</div>' +
             '<div class="pchecks">' +
               '<input class="item-time-input" type="time" title="时间（可选，填了显示在事项副标题前）" value="' + esc(it.time || '') + '" onchange="state.items[' + i + '].time=this.value">' +
+              '<select class="freq-select" title="重复周期" onchange="state.items[' + i + '].freq=this.value">' + freqOptions(it.freq) + '</select>' +
               (checks || '<span class="muted">不勾选时段 = 全天显示</span>') +
               '<span class="mv" title="上移" onclick="moveItem(' + i + ',-1)">&#x2191;</span>' +
               '<span class="mv" title="下移" onclick="moveItem(' + i + ',1)">&#x2193;</span>' +
