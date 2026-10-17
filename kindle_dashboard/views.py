@@ -304,6 +304,12 @@ def register_views(app):
             _c["href"] = "/display?" + urllib.parse.urlencode(
                 [(k, v) for k, v in request.args.items() if k not in ("y", "m")]
                 + [("y", str(_c["y"])), ("m", str(_c["m"]))])
+        # 「回到今天」：翻到其他月份时出现（查看的就是当月时不显示，避免冗余按钮）
+        _ty, _tm = now.year, now.month
+        kindle["cal"]["today_href"] = "/display?" + urllib.parse.urlencode(
+            [(k, v) for k, v in request.args.items() if k not in ("y", "m")]
+            + [("y", str(_ty)), ("m", str(_tm))])
+        kindle["cal"]["is_cur_month"] = (cy == _ty and cm == _tm)
         # 勾选链接同样带上当前 query（?key= 免登录、?land=、?y=&m=、?panel=）：
         # 无 cookie 的 Kindle 上 <a> 回退通路不再掉登录页，勾完也回到当前视图。
         kindle["toggle_q"] = ("?" + urllib.parse.urlencode(list(request.args.items()))

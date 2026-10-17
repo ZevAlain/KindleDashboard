@@ -199,6 +199,7 @@
         .cal-title { font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #000000; }
         .cal-navs { display: flex; align-items: baseline; }   /* 右侧导航组：上个月 | 月份 | 下个月 */
         .cal-month { font-size: 18px; font-weight: 700; letter-spacing: 1px; color: #000000; margin: 0 10px; }
+        .cal-today { margin-left: 12px; border: 2px solid #000000; border-radius: 6px; padding: 4px 8px; }   /* 回到今天：同色系黑字 + 细黑框微强调，与整体风格统一 */
         .cal-nav { font-size: 15px; font-weight: 600; letter-spacing: 1px; color: #000000; text-decoration: none; padding: 6px 0; }
         .cal-grid { display: flex; flex-wrap: wrap; }   /* 无边框：1px 网格线在 e-ink 上抖动断线、空格拉灰更丑，靠 7 列对齐 + 留白组织 */
         .cal-wk { width: 14.28%; box-sizing: border-box; text-align: center; font-size: 14px; font-weight: 800;
@@ -341,6 +342,11 @@
                     <a class="cal-nav" href="{{ data['cal']['prev']['href'] }}#cal">上个月</a>
                     <div class="cal-month">{{ data['cal']['title'] }}</div>
                     <a class="cal-nav" href="{{ data['cal']['next']['href'] }}#cal">下个月</a>
+                    {# 回到今天：翻到其他月份时才出现（当月时不显示冗余按钮）；链接同样保留
+                       key/land/panel，且回来时万年历仍是展开状态 #}
+                    {% if not data['cal']['is_cur_month'] %}
+                    <a class="cal-nav cal-today" href="{{ data['cal']['today_href'] }}#cal">回到今天</a>
+                    {% endif %}
                 </div>
             </div>
             <div class="cal-grid">
