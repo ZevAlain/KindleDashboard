@@ -26,18 +26,23 @@ def _api_record(source, ok, ts, error=""):
         st["error"] = str(error)[:200] or "未知错误"
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
-        _atomic_write_json(API_STATUS_FILE, _api_status)
+        _atomic_write_json(API_STATUS_FILE, dict(_api_status, _v=2))
     except Exception:
         pass
 
 
 def _api_status_merge_disk():
-    """启动时把磁盘上的最后已知状态并进内存（只补缺失项，不覆盖已有）。"""
+    """启动时把磁盘上的最后已知状态并进内存（只补缺失项，不覆盖已有）。
+    带 schema 版本号 _v：旧版状态文件（来源键布局不同，如旧版把"次年失败"
+    记在 holiday 一个键里，新版拆成 holiday/holiday_next）整体弃用——
+    否则旧记录会把新版的"当年"显示成失败中；后台线程 30 秒内会写入真实状态。"""
     try:
         with open(API_STATUS_FILE, encoding="utf-8") as f:
             disk = json.load(f)
-        for k, v in (disk or {}).items():
-            if not isinstance(v, dict):
+        if not isinstance(disk, dict) or disk.get("_v") != 2:
+            return
+        for k, v in disk.items():
+            if k.startswith("_") or not isinstance(v, dict):
                 continue
             mem = _api_status.setdefault(k, {"last_ok": None, "last_fail": None, "error": None})
             for kk in ("last_ok", "last_fail", "error"):

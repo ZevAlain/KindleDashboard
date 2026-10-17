@@ -846,6 +846,11 @@
         msg.textContent = '已添加「' + nm + '」（时区：' + (it.tz || '按经度估算') + '），记得点「保存全部」生效。';
         renderCities();
       }
+      var LUNAR_MONTHS = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'];
+      var LUNAR_DAYS = ['初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+                        '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+                        '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'];
+
       function renderSpecialDates() {
         var el = document.getElementById('specialDates');
         el.innerHTML = '';
@@ -854,25 +859,40 @@
           var row = document.createElement('div');
           row.className = 'item';
           var lunar = b.cal === 'lunar';
+          var parts = String(b.date || '').split('-');
+          var lm = parseInt(parts[parts.length - 2] || '1', 10) || 1;   // 农历月数字
+          var ld = parseInt(parts[parts.length - 1] || '1', 10) || 1;   // 农历日数字
+          var dateCtrl;
+          if (lunar) {
+            // 农历：直接选农历月/日（正月至腊月 / 初一至三十），不再用公历控件装农历数字
+            var mOpts = '', dOpts = '';
+            for (var mm = 1; mm <= 12; mm++) {
+              mOpts += '<option value="' + mm + '"' + (mm === lm ? ' selected' : '') + '>' + LUNAR_MONTHS[mm - 1] + '</option>';
+            }
+            for (var dd = 1; dd <= 30; dd++) {
+              dOpts += '<option value="' + dd + '"' + (dd === ld ? ' selected' : '') + '>' + LUNAR_DAYS[dd - 1] + '</option>';
+            }
+            dateCtrl =
+              '<select class="freq-select" title="农历月" onchange="setLunarMd(' + i + ',\'m\',this.value)">' + mOpts + '</select>' +
+              '<select class="freq-select" title="农历日" onchange="setLunarMd(' + i + ',\'d\',this.value)">' + dOpts + '</select>' +
+              '<label class="pleap"><input type="checkbox" ' + (b.leap ? 'checked' : '') +
+                ' onchange="state.special_dates[' + i + '].leap=this.checked">闰月</label>';
+          } else {
+            dateCtrl =
+              '<input class="sdate" type="date" title="公历日期" value="' + esc(b.date || '') + '" oninput="state.special_dates[' + i + '].date=this.value">' +
+              '<select class="sfreq" title="标记频率" onchange="state.special_dates[' + i + '].freq=this.value">' +
+                '<option value="yearly"' + ((b.freq || 'yearly') !== 'monthly' ? ' selected' : '') + '>每年</option>' +
+                '<option value="monthly"' + ((b.freq || 'yearly') === 'monthly' ? ' selected' : '') + '>每月</option>' +
+              '</select>';
+          }
           row.innerHTML =
             '<div class="main">' +
               '<input class="grow" type="text" placeholder="名字（如：妈妈生日、结婚纪念日）" value="' + esc(b.name) + '" oninput="state.special_dates[' + i + '].name=this.value">' +
-              '<input class="sdate" type="date" value="' + esc(b.date || '') + '" title="' +
-                (lunar ? ('农历日期：' + (b._cn || '月/日数字按农历计，如 10-20 = 农历十月二十'))
-                       : '公历日期') + '" oninput="state.special_dates[' + i + '].date=this.value">' +
-              '<select class="scal" title="公历/农历（切换时自动换算日期，保持同一天）" onchange="switchCal(' + i + ', this.value)">' +
+              '<select class="scal" title="历法（切换时自动换算成同一天的另一套历法）" onchange="switchCal(' + i + ', this.value)">' +
                 '<option value="solar"' + (lunar ? '' : ' selected') + '>公历</option>' +
                 '<option value="lunar"' + (lunar ? ' selected' : '') + '>农历</option>' +
               '</select>' +
-              (lunar ? ''
-                : '<select class="sfreq" title="标记频率" onchange="state.special_dates[' + i + '].freq=this.value">' +
-                  '<option value="yearly"' + ((b.freq || 'yearly') !== 'monthly' ? ' selected' : '') + '>每年</option>' +
-                  '<option value="monthly"' + ((b.freq || 'yearly') === 'monthly' ? ' selected' : '') + '>每月</option>' +
-                '</select>') +
-              (lunar
-                ? '<label class="pleap"><input type="checkbox" ' + (b.leap ? 'checked' : '') +
-                  ' onchange="state.special_dates[' + i + '].leap=this.checked">闰月</label>'
-                : '') +
+              dateCtrl +
               '<button type="button" class="rmb" onclick="delSpecialDate(' + i + ')">删除</button>' +
             '</div>';
           el.appendChild(row);
@@ -882,9 +902,22 @@
         }
       }
 
+      function setLunarMd(i, which, val) {
+        // 农历月/日下拉变化：写回 date 字段（数字形式 YYYY-MM-DD，与公历条目同一存储结构）
+        var b = state.special_dates[i];
+        var parts = String(b.date || '').split('-');
+        var y = (parts.length === 3 && parseInt(parts[0], 10) > 1900) ? parseInt(parts[0], 10)
+                                                             : new Date().getFullYear();
+        var m = (which === 'm') ? parseInt(val, 10)
+                                : (parseInt(parts[parts.length - 2] || '1', 10) || 1);
+        var d = (which === 'd') ? parseInt(val, 10)
+                                : (parseInt(parts[parts.length - 1] || '1', 10) || 1);
+        b.date = y + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+      }
+
       function switchCal(i, val) {
-        // 切换公历/农历时把日期换算成另一套历法的同一天（如公历 2026-10-20
-        // 切农历 -> 它对应的农历数字，以后每年按这个农历日子标记），
+        // 切换历法时把日期换算成另一套历法的同一天（如公历 2026-10-20
+        // 切农历 -> 农历九月初十，下拉自动选中八月/十五这样的对应项），
         // 而不是把数字原样换语义解释（那会让标记跑到完全不相干的日子上）。
         var b = state.special_dates[i];
         var old = b.cal || 'solar';
@@ -894,8 +927,8 @@
               + '&mode=' + (val === 'lunar' ? 's2l' : 'l2s'))
           .then(function (r) { return r.json(); })
           .then(function (j) {
-            if (j.ok) { b.date = j.date; b._cn = j.cn; }
-            else { b._cn = ''; if (window.console) console.log('换算失败：' + (j.error || '')); }
+            if (j.ok) { b.date = j.date; }
+            else if (window.console) { console.log('换算失败：' + (j.error || '')); }
             b.cal = val;
             renderSpecialDates();
           })

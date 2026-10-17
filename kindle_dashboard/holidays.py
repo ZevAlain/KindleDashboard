@@ -52,7 +52,8 @@ def fetch_holidays(year, fetched_at):
     """从 API 抓取某年节假日安排并写缓存 cache/holidays_{year}.json；失败抛异常（由调用方兜底）。"""
     req = urllib.request.Request(HOLIDAY_API_URL.format(year=year),
                                  headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=5) as r:
+    # timeout 10s：timor.tech 的 SSL 握手经常慢，5 秒不够会频繁假性失败
+    with urllib.request.urlopen(req, timeout=10) as r:
         raw = json.loads(r.read().decode("utf-8", "replace"))
     if raw.get("code") != 0:
         raise ValueError("holiday api code != 0")
