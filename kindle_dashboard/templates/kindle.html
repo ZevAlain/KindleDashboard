@@ -314,7 +314,7 @@
         {# 展开/收回面板与待办区同一槽位：点天气块/时钟/农历行展开其一（待办整块让位），
            再点（或点面板内"收起"）回到待办，同一时间只开一个。默认全部 display:none：
            JS 挂了时待办照常显示，不会卡在空屏上。 #}
-        <div class="world-panel" id="worldBox" style="display:none">
+        <div class="world-panel" id="worldBox" style="{% if panel == 'world' %}display:block{% else %}display:none{% endif %}">
             <div class="world-head">
                 <div class="world-title">世界时间</div>
                 <a class="panel-close" href="javascript:void(0)" onclick="togglePanel('world'); return false;" title="收起">收起</a>
@@ -329,7 +329,7 @@
                 {% endfor %}
             </div>
         </div>
-        <div class="cal-panel" id="calBox" style="display:none">
+        <div class="cal-panel" id="calBox" style="{% if panel == 'cal' %}display:block{% else %}display:none{% endif %}">
             <div class="cal-head">
                 <div class="cal-title">万年历</div>
                 <div class="cal-navs">
@@ -367,7 +367,7 @@
             {% endif %}
         </div>
         {% if data['weather'] and data['weather']['cmp'] %}
-        <div class="cmp" id="cmpBox">
+        <div class="cmp" id="cmpBox"{% if panel == 'cmp' %} style="display:block"{% endif %}>
             <div class="cmp-bar">
                 <span class="cmp-title">天气</span>
                 <a class="panel-close" href="javascript:void(0)" onclick="toggleCmp(); return false;">收起</a>
@@ -450,7 +450,7 @@
         {% endif %}
         {# 待办整块包一层：点天气块时它整块隐藏、由下面的对比面板顶上来（替换，不是插在上面挤下面）。
            放在面板之前：JS 挂了时默认显示的仍是待办，不会卡在空屏上 #}
-        <div class="list-view" id="listView">
+        <div class="list-view" id="listView"{% if panel != 'todo' %} style="display:none"{% endif %}>
         <div class="list-title">当前时段待办</div>
         {% if data['items'] %}
         <ul>

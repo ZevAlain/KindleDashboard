@@ -328,7 +328,13 @@ def register_views(app):
         _modes = data.get("land_modes") or [0, 1, 2, 3]
         kindle["land_modes"] = _modes
         kindle["land_next_landscape"] = _next_land(int(land), _modes) in (1, 3)   # 图标：下一方向是横版(90/270)→横屏图标
-        resp = make_response(render_template('kindle.html', data=kindle, land=land))
+        # 面板展开状态（待办/天气对比/世界时钟/万年历）的主持久化通路就是 URL ?panel=
+        # （localStorage/JS 只是书签重开时的兜底）。服务端直接按它出初始 display：
+        # 面板开着时整页自动刷新不会先画待办再被 JS 切过去——墨水屏少一次重绘闪烁。
+        panel = request.args.get("panel")
+        if panel not in ("world", "cal", "cmp"):
+            panel = "todo"
+        resp = make_response(render_template('kindle.html', data=kindle, land=land, panel=panel))
         # 强制回源取新页面：Kindle/浏览器很可能吃着磁盘缓存，改完代码真机上还在跑旧页面，
         # 表现就是"点天气块没反应"（旧页面根本没有 onclick）——macOS 刚刷过、所以能开。
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
