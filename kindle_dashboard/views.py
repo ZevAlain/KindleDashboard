@@ -428,6 +428,34 @@ def register_views(app):
             return jsonify({"ok": False, "q": q, "error": str(e), "results": []})
 
 
+    @app.route('/api/lunar_convert')
+    @login_required
+    def api_lunar_convert():
+        """admin 万年历：公历⇄农历日期换算（切换历法时保持"这一天"的语义连续）。
+        mode=s2l：公历 YYYY-MM-DD -> 它对应的农历数字日期 + 中文（如"农历九月初十"）；
+        mode=l2s：农历 YYYY-MM-DD -> 当年对应公历日。"""
+        ds = str(request.args.get('date') or '').strip()
+        mode = 'l2s' if str(request.args.get('mode') or '') == 'l2s' else 's2l'
+        try:
+            y, m, d = (int(x) for x in ds.split("-"))
+            if mode == 'l2s':
+                sol = lunar_to_solar(y, m, d, False)
+                if sol is None:
+                    return jsonify({"ok": False, "error": "该农历日期不存在（小月无三十/无此闰月）"})
+                return jsonify({"ok": True, "date": sol.strftime("%Y-%m-%d"),
+                                 "cn": "公历 " + sol.strftime("%Y年%m月%d日")})
+            lun = solar_to_lunar(date(y, m, d))
+            if lun is None:
+                return jsonify({"ok": False, "error": "日期超出支持范围（1900-2100）"})
+            cn = ("闰" if lun["is_leap"] else "") + _LUNAR_MONTH_CN[lun["month"] - 1] \
+                + _LUNAR_DAY_CN[lun["day"] - 1]
+            return jsonify({"ok": True,
+                            "date": "%04d-%02d-%02d" % (lun["year"], lun["month"], lun["day"]),
+                            "cn": "农历" + cn})
+        except Exception:
+            return jsonify({"ok": False, "error": "日期格式错误（需要 YYYY-MM-DD）"})
+
+
     @app.route('/admin/save', methods=['POST'])
     @login_required
     def save():

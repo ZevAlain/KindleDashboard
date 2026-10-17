@@ -33,20 +33,25 @@ def _fail_record(source, now_ts):
 
 
 def _bg_refresh_holidays(ts):
-    for y in (now_cn().year, now_cn().year + 1):
+    """抓当年 + 次年的法定假日安排。两个年份分开记录状态（holiday / holiday_next）、
+    分开退避：timor.tech 对背靠背的连续请求容易掐 SSL 握手（当年成功、紧接着的
+    次年超时是常态），次年数据通常也要年底才发布——两者成败互不掩盖。"""
+    this_year = now_cn().year
+    for y in (this_year, this_year + 1):
+        source = "holiday" if y == this_year else "holiday_next"
         cached, fetched_at = _load_holiday_cache(y)
         if cached is not None and ts - fetched_at < HOLIDAY_CACHE_TTL:
             continue
-        if _fail_backoff_active("holiday", ts):
-            break
+        if _fail_backoff_active(source, ts):
+            continue           # 只退避这一年，不挡另一年
         try:
             fetch_holidays(y, ts)
-            _fail_state.pop("holiday", None)
-            _api_record("holiday", True, ts)
+            _fail_state.pop(source, None)
+            _api_record(source, True, ts)
         except Exception as e:
-            _fail_record("holiday", ts)
-            _api_record("holiday", False, ts, e)
-            break          # 源大概率不可达，同轮不试第二年
+            _fail_record(source, ts)
+            _api_record(source, False, ts, e)
+        time.sleep(3)          # 两个请求之间隔开，避免连续连接被限流
 
 
 def _bg_refresh_motto(ts):

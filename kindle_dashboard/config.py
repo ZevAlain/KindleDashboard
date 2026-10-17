@@ -38,8 +38,12 @@ API_SOURCES = {
         "endpoint": "api.open-meteo.com（免 key，30 分钟缓存）",
     },
     "holiday": {
-        "title": "法定节假日安排（timor.tech）",
+        "title": "法定节假日 · 当年（timor.tech）",
         "endpoint": "timor.tech/api/holiday/year",
+    },
+    "holiday_next": {
+        "title": "法定节假日 · 次年（timor.tech）",
+        "endpoint": "timor.tech/api/holiday/year（次年安排通常年底才发布，失败属正常）",
     },
     "motto": {
         "title": "每日鼓励语（hitokoto.cn）",

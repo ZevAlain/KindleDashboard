@@ -36,11 +36,14 @@ def _holiday_cache_path(year):
 
 
 def _load_holiday_cache(year):
-    """读某年节假日缓存。返回 (events 或 None, _fetched_at)。"""
+    """读某年节假日缓存。返回 (events 或 None, _fetched_at)。
+    注意：空列表也算有效缓存（次年安排未发布时接口正常返回空——当作"已确认无数据"，
+    TTL 内不再重抓；返回 None 只表示"没有可用缓存文件/文件损坏，需要抓取"）。"""
     try:
         with open(_holiday_cache_path(year), 'r', encoding='utf-8') as f:
             data = json.load(f)
-        return data.get("events") or None, int(data.get("_fetched_at") or 0)
+        ev = data.get("events")
+        return (ev if isinstance(ev, list) else None), int(data.get("_fetched_at") or 0)
     except Exception:
         return None, 0
 

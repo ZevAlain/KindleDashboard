@@ -716,6 +716,9 @@
         for (var j = 0; j < panes.length; j++) {
           panes[j].className = 'tabpane' + (panes[j].id === 'pane_' + name ? ' active' : '');
         }
+        // 数据源页签是纯只读状态页：底部全局"保存并更新"栏在这里没有意义，隐藏之
+        var sb = document.querySelector('.savebar');
+        if (sb) sb.style.display = (name === 'api') ? 'none' : '';
         if (location.hash !== '#' + name) {
           try { history.replaceState(null, '', '#' + name); } catch (e) { }
         }
@@ -854,8 +857,10 @@
           row.innerHTML =
             '<div class="main">' +
               '<input class="grow" type="text" placeholder="名字（如：妈妈生日、结婚纪念日）" value="' + esc(b.name) + '" oninput="state.special_dates[' + i + '].name=this.value">' +
-              '<input class="sdate" type="date" value="' + esc(b.date || '') + '" oninput="state.special_dates[' + i + '].date=this.value">' +
-              '<select class="scal" title="公历/农历" onchange="state.special_dates[' + i + '].cal=this.value;renderSpecialDates()">' +
+              '<input class="sdate" type="date" value="' + esc(b.date || '') + '" title="' +
+                (lunar ? ('农历日期：' + (b._cn || '月/日数字按农历计，如 10-20 = 农历十月二十'))
+                       : '公历日期') + '" oninput="state.special_dates[' + i + '].date=this.value">' +
+              '<select class="scal" title="公历/农历（切换时自动换算日期，保持同一天）" onchange="switchCal(' + i + ', this.value)">' +
                 '<option value="solar"' + (lunar ? '' : ' selected') + '>公历</option>' +
                 '<option value="lunar"' + (lunar ? ' selected' : '') + '>农历</option>' +
               '</select>' +
@@ -875,6 +880,26 @@
         if (state.special_dates.length === 0) {
           el.innerHTML = '<div class="muted">还没有重要日子。添加后，万年历会在对应日期标记（公历按公历日；农历自动换算成当年公历日）。</div>';
         }
+      }
+
+      function switchCal(i, val) {
+        // 切换公历/农历时把日期换算成另一套历法的同一天（如公历 2026-10-20
+        // 切农历 -> 它对应的农历数字，以后每年按这个农历日子标记），
+        // 而不是把数字原样换语义解释（那会让标记跑到完全不相干的日子上）。
+        var b = state.special_dates[i];
+        var old = b.cal || 'solar';
+        if (old === val) { renderSpecialDates(); return; }
+        if (!b.date || b.date.length < 8) { b.cal = val; renderSpecialDates(); return; }
+        fetch('/api/lunar_convert?date=' + encodeURIComponent(b.date)
+              + '&mode=' + (val === 'lunar' ? 's2l' : 'l2s'))
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j.ok) { b.date = j.date; b._cn = j.cn; }
+            else { b._cn = ''; if (window.console) console.log('换算失败：' + (j.error || '')); }
+            b.cal = val;
+            renderSpecialDates();
+          })
+          .catch(function () { b.cal = val; renderSpecialDates(); });
       }
       function addSpecialDate() {
         state.special_dates = state.special_dates || [];
@@ -897,7 +922,7 @@
       function renderApi(data) {
         var el = document.getElementById('apiList');
         if (!el) { return; }
-        var order = ['weather', 'holiday', 'motto', 'almanac'];
+        var order = ['weather', 'holiday', 'holiday_next', 'motto', 'almanac'];
         var html = '';
         for (var i = 0; i < order.length; i++) {
           var key = order[i];
