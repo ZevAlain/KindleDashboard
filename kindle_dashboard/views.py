@@ -403,17 +403,13 @@ def register_views(app):
         _modes = data.get("land_modes") or [0, 1, 2, 3]
         kindle["land_modes"] = _modes
         kindle["land_next_landscape"] = _next_land(int(land), _modes) in (1, 3)   # 图标：下一方向是横版(90/270)→横屏图标
-        # 面板展开状态（待办/天气对比/世界时钟/万年历）持久化三层通路：
-        # ① URL ?panel=（主通路：正常浏览器的手动/自动刷新都保留 URL）；
-        # ② cookie kd_panel（JS setPanel 时写入）——Kindle 老 WebKit 的
-        #    history.replaceState 可能静默不生效（URL 从未真正带上 ?panel=），
-        #    localStorage 又常被禁用，cookie 是老内核上唯一可靠的跨刷新通路，
-        #    且服务端能直接读到，首帧即直出正确面板（e-ink 无跳变）；
-        # ③ 都没有 → 默认待办。
-        panel = request.args.get("panel")
-        if panel not in ("world", "cal", "cmp"):
-            panel = (request.cookies.get("kd_panel") or "").strip()
-        if panel not in ("world", "cal", "cmp"):
+        # 面板状态（方案C·服务端记忆）：data.json 的 "panel" 字段——切面板时
+        # POST /panel/<n> 写入（与屏幕方向 /land 同一模式）。刷新（meta/手动/唤醒）
+        # 一律按记忆由服务端直出首帧，**不依赖 URL/cookie/localStorage**——老 WebKit
+        # 的这三样都不可信（见 docs/kindle-constraints.md C1~C3）。切面板的观感由
+        # 前端 XHR 局部替换内容区完成（页眉页脚不重绘）。
+        panel = str(data.get("panel") or "todo").strip()
+        if panel not in ("todo", "world", "cal", "cmp"):
             panel = "todo"
         resp = make_response(render_template('kindle.html', data=kindle, land=land, panel=panel))
         # 强制回源取新页面：Kindle/浏览器很可能吃着磁盘缓存，改完代码真机上还在跑旧页面，
@@ -520,6 +516,23 @@ def register_views(app):
             return jsonify({"ok": True, "q": q, "results": geocode_search(q, count=6)})
         except Exception as e:
             return jsonify({"ok": False, "q": q, "error": str(e), "results": []})
+
+
+    @app.route('/panel/<name>', methods=['POST'])
+    @login_required
+    def set_panel(name):
+        """切面板（方案C·服务端记忆）：写入 data.json 的 panel 字段（与 /land 方向
+        记忆同一模式），随后**返回按新面板渲染的完整 display 页**——前端 XHR 从响应
+        中切出内容区（contentStart/End 标记）就地替换，页眉页脚不重绘（墨水屏上
+        局部 DOM 更新不触发全屏闪）。POST 的 query（key/y/m/land）原样传给
+        display()，翻月状态与方向不丢。"""
+        if name not in ("todo", "world", "cal", "cmp"):
+            return jsonify({"ok": False, "error": "未知面板"}), 400
+        with DATA_LOCK:
+            data = _get_data_locked()
+            data["panel"] = name
+            save_data(data)
+        return display()
 
 
     @app.route('/land/<int:n>', methods=['POST'])

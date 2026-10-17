@@ -109,6 +109,9 @@ def normalize(data):
     data.setdefault("periods", [])
     data.setdefault("items", [])
     data.setdefault("last_reset_date", "")
+    # 面板状态（方案C·服务端记忆）：切面板时由 /panel/<n> 写入；旧数据没有该键补默认待办
+    if data.get("panel") not in ("todo", "world", "cal", "cmp"):
+        data["panel"] = "todo"
     w = data.get("weather")
     if not isinstance(w, dict):
         w = data["weather"] = {}

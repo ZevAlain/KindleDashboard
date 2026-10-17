@@ -315,7 +315,11 @@
     <div class="main">
         {{ render_hero(data) }}
     <div class="scroll pane" id="scrollArea">
-        {# 展开/收回面板与待办区同一槽位：点天气块/时钟/农历行展开其一（待办整块让位），
+        <!--contentStart-->
+        {# contentStart/End 注释是切面板局部更新的切片标记（方案C）：POST /panel/<n>
+           返回按新面板渲染的整页，JS 从两个标记之间切出内容区 innerHTML 就地替换——
+           页眉页脚不重绘（墨水屏上局部 DOM 更新不触发全屏闪，勾选就地更新同一通路）。
+           展开/收回面板与待办区同一槽位：点天气块/时钟/农历行展开其一（待办整块让位），
            再点（或点面板内"收起"）回到待办，同一时间只开一个。默认全部 display:none：
            JS 挂了时待办照常显示，不会卡在空屏上。 #}
         <div class="world-panel" id="worldBox" style="{% if panel == 'world' %}display:block{% else %}display:none{% endif %}">
@@ -487,6 +491,7 @@
         <div class="empty">当前时段没有待显示的事项</div>
         {% endif %}
         </div>
+        <!--contentEnd-->
     </div>
     </div>
 
@@ -592,74 +597,46 @@
         } catch (e) {}
         return 'todo';
       }
-      // 面板状态记在哪：优先**地址栏查询参数** ?panel=world/cal/cmp——真机上 storage 常被禁用
-      // 或不落盘，且 meta 整页刷新会**丢掉 hash 片段、但保留 query 参数**（与 ?land= 同一条通路，
-      // 跨刷新存活已真机验证）；#world/#cal/#cmp 片段与 localStorage 仅作兜底。
-      // 值刻意与元素 id 错开（面板是 calBox/worldBox/cmpBox），浏览器找不到锚点就不会滚动。
-      function _queryPanel() {
-        var m = (location.search || '').match(/[?&]panel=([^&#]*)/);
-        return (m && (m[1] === 'world' || m[1] === 'cal' || m[1] === 'cmp')) ? m[1] : '';
-      }
-      function _hashPanel() {
-        var h = (location.hash || '').replace(/^#/, '');
-        return (h === 'world' || h === 'cal' || h === 'cmp') ? h : '';
-      }
-      function _writePanel(name) {
-        var want = (name && name !== 'todo') ? name : '';
-        // 重建 query：换掉旧 panel 参数，其余（key / land / y / m）全部保留
-        var q = location.search ? location.search.substring(1) : '';
-        var ps = q ? q.split('&') : [];
-        var keep = [];
-        for (var i = 0; i < ps.length; i++) {
-          if (ps[i] && ps[i].split('=')[0] !== 'panel') keep.push(ps[i]);
-        }
-        if (want) keep.push('panel=' + want);
-        var newUrl = location.pathname + (keep.length ? '?' + keep.join('&') : '') + (want ? '#' + want : '');
-        // Kindle 老 WebKit 上**一切 JS 改 URL 的手段都不可信**：replaceState 静默失效、
-        // 甚至 JS 的 location 对象显示"已更新"而真实地址栏没变（读回校验会被骗过）。
-        // 刷新用的是真实地址栏 → panel 丢失 → 回待办。因此放弃"无刷新切换"：
-        // 一律用最古老的 location.href 真实导航，URL 100% 真实携带 panel——
-        // meta 自动刷新 / 手动刷新 / 唤醒重开全部保持。墨水屏上任何内容变化
-        // 本来就是全屏重刷，无刷新切换在 Kindle 上没有任何观感收益。
-        // 防死循环：当前 URL 已含目标 panel 时不导航（真导航到达的新页面
-        // URL 已带 panel，加载后 setPanel 再调本函数会在此返回）。
-        if (want && location.href.indexOf('panel=' + want) >= 0) return;
-        if (!want && location.href.indexOf('panel=') < 0) return;
-        try { location.href = newUrl; } catch (e) { try { location.hash = want; } catch (e2) {} }
-      }
-      // 页面首次加载时恢复上次的面板：query > 片段 > localStorage；读不到就当没开。
-      // 降级只影响"整页自动刷新后是否还开着"，不影响开关交互本身。
-      function _savedPanel() {
-        var q = _queryPanel();
-        if (q) return q;                       // 地址栏 query 说了算（跨 meta 刷新存活）
-        var h = _hashPanel();
-        if (h) return h;
-        try {
-          var v = localStorage.getItem('kd_panel') || '';
-          if (v !== 'world' && v !== 'cal' && v !== 'cmp') {
-            v = (localStorage.getItem('kd_cmp') === '1') ? 'cmp' : 'todo';   // 兼容旧键（天气专用面板期）
-          }
-          return v;
-        } catch (e) { return 'todo'; }
-      }
+      // ----------------- 面板切换（方案C：服务端记忆 + XHR 局部换内容） -----------------
+      // 状态可靠性：面板记在服务端 data.json（POST /panel/<n>，与屏幕方向 /land 同模式），
+      //   刷新（meta/手动/唤醒）由服务端按记忆直出——不依赖 URL/cookie/localStorage
+      //   （老 WebKit 上三者都不可信，见 docs/kindle-constraints.md C1~C3）。
+      // 观感：POST 的响应就是按新面板渲染的整页，从中按 contentStart/End 标记切出
+      //   内容区 innerHTML 就地替换——页眉页脚不重绘（墨水屏上局部 DOM 更新不触发
+      //   全屏闪，与勾选就地更新同一通路，真机已验证）。
+      var _panelBusy = false;
       function setPanel(name) {
-        var lv = document.getElementById('listView');
-        var wb = document.getElementById('worldBox');
-        var cb = document.getElementById('calBox');
-        var mp = document.getElementById('cmpBox');
-        if (lv) lv.style.display = (name === 'todo') ? '' : 'none';
-        if (wb) wb.style.display = (name === 'world') ? 'block' : 'none';
-        if (cb) cb.style.display = (name === 'cal') ? 'block' : 'none';
-        if (mp) mp.style.display = (name === 'cmp') ? 'block' : 'none';
-        try { localStorage.setItem('kd_panel', name === 'todo' ? '' : name); } catch (e1) {}
-        // cookie 通路：Kindle 老 WebKit 的 history.replaceState 可能静默不生效
-        // （URL 从未带上 ?panel=），localStorage 又常被禁——cookie 是老内核上唯一
-        // 可靠的跨刷新持久化，且服务端能读到、首帧直出正确面板。
-        try { document.cookie = 'kd_panel=' + (name === 'todo' ? '' : name) + '; path=/; max-age=31536000'; } catch (e0) {}
-        _writePanel(name);                                   // 状态写进地址栏 query（跨 meta 刷新存活）
-        var sc = document.getElementById('scrollArea');
-        if (sc && name !== 'todo') sc.scrollTop = 0;   // 打开时回到顶，别停在上次滚动的位置
-        try { updateHint(); } catch (e2) {}            // 面板开着时不显示"还有 N 项待办"；它出错也不能拖垮切换
+        if (name !== 'todo' && name !== 'world' && name !== 'cal' && name !== 'cmp') return;
+        if (_panelBusy) return;                       // e-ink 反馈慢，防连点（同 toggleItem 思路）
+        _panelBusy = true;
+        var free = function () { _panelBusy = false; };
+        var kill = setTimeout(free, 8000);            // 请求挂死也不能把面板卡成不可点
+        try {
+          var x = new XMLHttpRequest();
+          x.onreadystatechange = function () {
+            if (x.readyState !== 4) return;
+            clearTimeout(kill); free();
+            if (x.status < 200 || x.status >= 300) {          // 服务端异常：退回整页导航（保可用性）
+              location.href = '/display' + (location.search || ''); return;
+            }
+            var resp = x.responseText || '';
+            var s = resp.indexOf('<!--contentStart-->');
+            var e = resp.indexOf('<!--contentEnd-->');
+            var area = document.getElementById('scrollArea');
+            if (s < 0 || e < 0 || e < s || !area) {           // 标记没找到（页面版本不匹配等）：同样退回整页
+              location.href = '/display' + (location.search || ''); return;
+            }
+            area.innerHTML = resp.substring(s + 19, e);       // 局部替换：页眉页脚不重绘
+            try { area.scrollTop = 0; } catch (e2) {}         // 打开时回到顶
+            try { updateHint(); } catch (e3) {}               // 面板开着时不显示"还有 N 项待办"
+          };
+          // query 原样带上：key（免登录）/ land（方向）/ y、m（万年历翻月状态）都不丢
+          x.open('POST', '/panel/' + name + (location.search || ''), true);
+          x.send(null);
+        } catch (e) {
+          clearTimeout(kill); free();
+          location.href = '/display' + (location.search || '');   // XHR 发不出去：退回整页
+        }
       }
       function togglePanel(name) { setPanel(_panelOf() === name ? 'todo' : name); }
       function toggleCmp() { togglePanel('cmp'); }      // 保留旧函数名：天气块内联 onclick 仍调它
@@ -718,7 +695,7 @@
         return false;
       }
       window.toggleItem = toggleItem;
-      try { setPanel(_savedPanel()); } catch (e) {}   // 刷新回来仍是展开的（localStorage 读不到就当没开）
+      // 初始面板状态由服务端按记忆直出（方案C），页面加载无需再恢复任何状态
 
       // 1. 视口高度对齐：老 WebKit 上 html 的 100% 偶尔比实际可视高度矮，页脚就会离屏幕底边留一段空白。
       //    只在真的有空隙时把 <html> 撑到 innerHeight（只增不减，不会把页脚顶到屏幕外）。

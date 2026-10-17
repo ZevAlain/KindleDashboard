@@ -31,9 +31,10 @@ def now_cn():
 
 WEEKDAY_CN = {1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日"}
 
-# 构建版本（CI 注入 git sha，本地构建为 dev）：display 页脚显示，
-# 用于确认 Kindle 是否吃到最新页面（其磁盘缓存很顽固）
-APP_VERSION = os.environ.get("APP_VERSION", "dev")
+# 应用版本（代码内管理，发版时手动递增；admin 页底部显示）：
+# 涉及 display 的改动发布前记得 bump——Kindle 磁盘缓存顽固，版本号是确认
+# 设备吃到新页面的唯一手段（docs/kindle-constraints.md 第五节）
+APP_VERSION = "v0.0.1"
 
 # 后台「数据源」tab 用的来源说明（纯静态文案，状态来自 api_status）。
 API_SOURCES = {

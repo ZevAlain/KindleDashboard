@@ -40,11 +40,15 @@
 ```
 状态需要跨刷新保持？
 ├─ 否 → 页内 JS 变量即可
-└─ 是 → 唯一可靠通路：URL query 参数
-     ├─ 写入：location.href 真实导航（C3 教训：不用 replaceState）
-     ├─ 读取：服务端读 query 首帧直出（R6）+ JS 读 query 兜底
-     ├─ 所有页内链接（翻月/刷新/勾选/方向）必须保留完整 query——服务端构造 href 时拼接
-     └─ 防死循环：目标状态已在当前 URL 时不再导航
+└─ 是 → 首选：**服务端记忆**（写 data.json，如 /land 方向、/panel 面板）
+     │    刷新/唤醒由服务端按记忆直出首帧，绕开 URL/cookie/localStorage 全部制约
+     │    （面板切换的观感由 XHR 局部替换内容区解决：POST 返回整页 + contentStart/End
+     │     标记切片 + innerHTML——页眉页脚不重绘，勾选就地更新同一通路）
+     └─ 备选（服务端记忆不适用时）：URL query 参数
+          ├─ 写入：location.href 真实导航（C3 教训：不用 replaceState）
+          ├─ 读取：服务端读 query 首帧直出（R6）+ JS 读 query 兜底
+          ├─ 所有页内链接（翻月/刷新/勾选/方向）必须保留完整 query——服务端构造 href 时拼接
+          └─ 防死循环：目标状态已在当前 URL 时不再导航
 ```
 
 ## 五、发布与诊断流程
@@ -63,5 +67,6 @@
 | 时钟"先小后大"跳变 | 首帧 CSS 兜底值、load 后 JS 才放大 | 脚本执行时立即 fitClock，服务端意识 |
 | 待办副标题"发灰" | 16px 细字重墨水覆盖率低 | 20px/700 加粗 |
 | 面板刷新后回待办（cookie 版修复无效） | C2：真机 cookie 也被禁 | 弃 cookie |
-| 面板刷新后回待办（replaceState 校验版也无效） | C3 第三层：location 对象与真实地址栏脱节 | **面板切换一律 location.href 真实导航**（现行方案，勿回退） |
+| 面板刷新后回待办（replaceState 校验版也无效） | C3 第三层：location 对象与真实地址栏脱节 | location.href 真实导航（已被方案C取代） |
+| 面板切换整页刷新、页眉页脚跟着闪 | 整页导航触发 e-ink 全屏重绘 | **方案C（现行）**：服务端记忆面板 + XHR 切片局部替换内容区，页眉页脚不重绘，勿回退 |
 | 容器起不来（本地构建正常） | Dockerfile 目录 COPY 平铺包结构 | CI 加启动冒烟测试 |
