@@ -654,7 +654,11 @@ def register_views(app):
             if wc is None:
                 wc = _norm_city_list(existing.get('world_cities')) \
                     or _norm_city_list(list(DEFAULT_CITY_LIST))
-            sd = _norm_special_dates(payload.get('special_dates'))
+            # 重要日子：校验被拒的条目要带回前端弹窗告知（绝不静默丢弃）；
+            # payload 没带该字段（部分提交）时不校验、不产生拒绝清单。
+            rejected = []
+            _sd_in = payload.get('special_dates')
+            sd = _norm_special_dates(_sd_in, rejected if _sd_in is not None else None)
             if sd is None:
                 sd = _norm_special_dates(existing.get('special_dates'))
                 if sd is None:
@@ -686,4 +690,6 @@ def register_views(app):
                 "last_reset_date": str(existing.get("last_reset_date") or "")
             }
             save_data(new_data)
-        return redirect('/admin')
+        # JSON 响应（前端 fetch 读取）：被拒条目逐条带回，弹窗告知——
+        # 用户可以接受"设置不了（可能设错了）"，但不能没有提示。
+        return jsonify({"ok": True, "rejected": rejected})

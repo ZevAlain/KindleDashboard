@@ -1035,7 +1035,17 @@
           body: JSON.stringify(payload)
         }).then(function (r) {
           if (!r.ok) throw new Error('bad status');
-          msg.textContent = '已保存。';
+          return r.json();
+        }).then(function (j) {
+          // 服务端校验被拒的设置逐条弹窗告知：可以接受"设置不了"（可能是设错了），
+          // 但绝不能静默丢弃——那会变成"保存成功、刷新后消失"。
+          var rej = (j && j.rejected) || [];
+          if (rej.length) {
+            window.alert('有 ' + rej.length + ' 条设置未保存：\n\n'
+                         + rej.join('\n')
+                         + '\n\n其余设置已保存；请修正后再保存一次。');
+          }
+          msg.textContent = rej.length ? ('已保存（' + rej.length + ' 条被拒，见弹窗）') : '已保存。';
           var cs = document.querySelectorAll('.card-save');
           for (var ci = 0; ci < cs.length; ci++) {
             (function (b) {

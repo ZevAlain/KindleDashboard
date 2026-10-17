@@ -154,16 +154,19 @@ DEFAULT_DISPLAY = {"show_weather": True, "show_motto": True, "show_lunar": True,
 
 # 城市 -> IANA 时区名。zoneinfo 在 Python 3.9+ 可用（正确处理夏令时）；
 # 老版本退回 WORLD_CITIES_OFF（标准时间，不含夏令时，夏令时期间最多差 1 小时）。
-def _norm_special_dates(v):
+def _norm_special_dates(v, _collect=None):
     """重要日子（万年历标记）：只保留 {name, date, cal} 条目，上限 20。
     date = YYYY-MM-DD（旧 MM-DD 自动补当前年份，升级为完整日期）；
     cal = solar(公历) / lunar(农历，默认公历)；leap = 农历闰月（可选布尔）；
     freq = monthly（公历专用：每月这一天都标记，默认 yearly 每年这个月日）。
-    非 list 输入返回 None（调用方回退到现值）。"""
+    非 list 输入返回 None（调用方回退到现值）。
+    _collect：传入 list 时收集被拒绝的条目原因（admin 保存路径用它弹窗告知用户，
+    绝不静默丢弃——用户可以接受设置不了，但不能没有提示）。"""
     if not isinstance(v, list):
         return None
     now_y = int(datetime.now(CN_TZ).year)
     out = []
+    rejected = [] if _collect is None else _collect   # 被拒条目及原因（save 路径弹窗告知用户）
     for b in v:
         if not isinstance(b, dict):
             continue
@@ -171,18 +174,21 @@ def _norm_special_dates(v):
         ds = str(b.get('date') or '').strip()
         parts = ds.split('-')
         if not name or len(parts) not in (2, 3):
+            rejected.append("%s：未填名字或日期格式不对" % (name or "（未命名）"))
             continue
         try:
             mi, di = int(parts[-2]), int(parts[-1])
             yi = int(parts[0]) if len(parts) == 3 else now_y
             ds = '%04d-%02d-%02d' % (yi, mi, di)
         except ValueError:
+            rejected.append("%s：日期「%s」无法解析" % (name, ds))
             continue
         cal = 'lunar' if str(b.get('cal') or 'solar').strip().lower() == 'lunar' else 'solar'
         if cal == 'solar':
             try:
                 date(yi, mi, di)
             except ValueError:
+                rejected.append("%s：公历 %s 这一天不存在" % (name, ds))
                 continue                       # 不存在的公历日（如 2026-02-30）
         else:
             # 农历：月/日数字合法即接受，**不按设置年校验该日是否存在**——
@@ -192,6 +198,8 @@ def _norm_special_dates(v):
             # 是否真实存在交给展示端按年处理：换算为 None 的年份自然跳过
             # （万年历 _cal_cells 与页眉倒计时 _special_next_dates 均已做该降级）。
             if not (1 <= mi <= 12 and 1 <= di <= 30):
+                rejected.append("%s：农历%s 月日数字须在 正月~腊月 / 初一~三十 范围内"
+                                % (name, ds))
                 continue                       # 数字本身非法（13 月 / 31 日）
         freq = ('monthly' if cal == 'solar'
                 and str(b.get('freq') or 'yearly').strip().lower() == 'monthly' else 'yearly')
