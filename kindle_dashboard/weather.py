@@ -2,9 +2,9 @@
 """天气（open-meteo）：抓取、缓存、展示视图（昨天/今天/明天对比）。"""
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-from .config import WEEKDAY_CN
+from .config import WEEKDAY_CN, now_cn
 from .geocode import geocode_cached_only
 from .utils import _cache_name, _cache_read, _http_json
 
@@ -274,6 +274,31 @@ def _weather_view(d, label, now=None):
             target["humidity"] = "%d%%" % int(round(float(hum)))
         except Exception:
             pass
+    # 未来 8 小时降雨概率条带（面板最下方恒显示）：从"当前整点"起切 8 个整点，
+    # 档位由模板按概率分（<30 浅字 / 30-59 黑框 / ≥60 反白）。
+    # v3 老缓存没有逐时数据 → rain 为空，模板不渲染（后台 30 分钟内重抓出 v4 自动补上）。
+    rain = []
+    try:
+        if now is not None:
+            times = d.get("pop_times") or []
+            vals = d.get("pop_vals") or []
+            now_h = now.strftime("%Y-%m-%dT%H:00")
+            start = None
+            for i, t in enumerate(times):
+                if str(t) >= now_h:
+                    start = i
+                    break
+            if start is None and times:
+                start = 0                     # 已过今天+明天全部时刻（理论边界）：从头取
+            for i in range(start if start is not None else 0,
+                           min((start or 0) + 8, len(times))):
+                try:
+                    p = int(vals[i] or 0)
+                except (TypeError, ValueError):
+                    p = 0
+                rain.append({"h": str(times[i])[11:13], "p": p})
+    except Exception:
+        rain = []
     return {
         "temp": (hi + "°" if hi else ""),          # 页眉显今日最高温（更有参考价值）
         "desc": desc,
@@ -286,6 +311,7 @@ def _weather_view(d, label, now=None):
         "loc_line": " · ".join(x for x in (loc, wind) if x),
         "svg": weather_svg(icon),
         "cmp": cols if len(cols) >= 2 else [],
+        "rain": rain[:8],
     }
 
 
@@ -310,20 +336,24 @@ def _fetch_air(lat, lon):
     except Exception:
         return None
 
-def _fetch_weather_raw(lat, lon, ts):
+def _fetch_weather_raw(lat, lon, ts, model="best_match"):
     """真正请求 open-meteo 两个接口（仅后台线程调用），返回缓存 payload；失败抛异常。
     past_days=1 + forecast_days=3：昨天/今天/明天三天的数据同一个请求带回来，不多打接口
     （open-meteo 的 daily 参数支持回溯，昨天的高低温/天气/日出日落都能取到）；
     体感/阵风走 hourly（current 只有此刻的，后天要用逐时值取当日最高；daily 无阵风聚合字段）；
-    天气 + 空气并行取（空气是另一个域名），空气挂了 _fetch_air 返回 None，天气照常存。"""
+    天气 + 空气并行取（空气是另一个域名），空气挂了 _fetch_air 返回 None，天气照常存。
+    model：open-meteo 气象模型（best_match 综合最优 / cma 中国气象局 / ecmwf / gfs）。"""
+    if model not in WEATHER_MODELS:
+        model = "best_match"
     url = (FORECAST_API
            + "?latitude=" + urllib.parse.quote(str(lat))
            + "&longitude=" + urllib.parse.quote(str(lon))
            + "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,apparent_temperature,relative_humidity_2m"
-           + "&hourly=apparent_temperature,wind_gusts_10m"
+           + "&hourly=apparent_temperature,wind_gusts_10m,precipitation_probability"
            + "&daily=temperature_2m_max,temperature_2m_min,uv_index_max,weather_code"
            + ",wind_speed_10m_max,wind_direction_10m_dominant,precipitation_probability_max"
            + ",sunrise,sunset"
+           + "&models=" + model
            + "&forecast_days=3"
            + "&past_days=1"
            + "&timezone=Asia%2FShanghai")
@@ -338,6 +368,15 @@ def _fetch_weather_raw(lat, lon, ts):
     feel_by_day = _hourly_by_day(hourly.get("time"), hourly.get("apparent_temperature"))
     gust_by_day = _hourly_by_day(hourly.get("time"), hourly.get("wind_gusts_10m"))
     aqi_by_day = _hourly_by_day(air.get("aqi_time"), air.get("aqi_h"))
+    # 逐时降雨概率（未来 8 小时条带用）：只留 今天+明天 两天的序列，
+    # 视图层按查看时刻切窗（缓存 30 分钟 TTL，窗口起点最多偏半小时，小时粒度无感）
+    _nd = now_cn()
+    _days2 = {_nd.strftime("%Y-%m-%d"), (_nd + timedelta(days=1)).strftime("%Y-%m-%d")}
+    pop_times, pop_vals = [], []
+    for _t, _v in zip(hourly.get("time") or [], hourly.get("precipitation_probability") or []):
+        if str(_t)[:10] in _days2:
+            pop_times.append(str(_t))
+            pop_vals.append(_v)
 
     def _at(seq, i):
         try:
@@ -385,12 +424,24 @@ def _fetch_weather_raw(lat, lon, ts):
         "high": _at(daily.get("temperature_2m_max"), 1),
         "low": _at(daily.get("temperature_2m_min"), 1),
         "days": days,
-        "v": 3,
+        "pop_times": pop_times,       # 逐时降雨概率（今天+明天 48 点），条带按时刻切窗
+        "pop_vals": pop_vals,
+        "v": 4,
         "_fetched_at": ts,
     }
     if data["temp"] is None or data["code"] is None:
         raise ValueError("open-meteo 返回缺字段")
     return data
+
+
+def weather_cache_key(lat, lon, model):
+    """天气缓存 key：含模型维度——切换模型后 key 变化，自然强制重抓新模型数据。"""
+    return _cache_name("weather", "%s,%s,%s" % (lat, lon,
+                                                model if model in WEATHER_MODELS else "best_match"))
+
+
+# admin 可选的天气模型（open-meteo models 参数白名单）
+WEATHER_MODELS = ("best_match", "cma_grapes_global", "ecmwf_ifs04", "gfs_seamless")
 
 
 def get_weather(cfg, now):
@@ -403,6 +454,7 @@ def get_weather(cfg, now):
             return None
         lat = str(cfg.get("lat") or "").strip()
         lon = str(cfg.get("lon") or "").strip()
+        model = str(cfg.get("model") or "best_match")
         label = location
         if not (lat and lon):
             geo = geocode_cached_only(location)
@@ -410,8 +462,8 @@ def get_weather(cfg, now):
                 return None
             lat, lon = str(geo["lat"]), str(geo["lon"])
             label = str(geo.get("label") or location)
-        cached = _cache_read(_cache_name("weather", "%s,%s" % (lat, lon))) or {}
-        # 不判 TTL：旧缓存比没有强（后台线程 30min 内会刷新）；
+        cached = _cache_read(weather_cache_key(lat, lon, model)) or {}
+        # 不判 TTL：旧缓存比没有强（后台线程会按配置间隔刷新）；
         # 老缓存缺 days（昨天/今天/明天对比表）字段视为不兼容，后台线程会强制重抓一次
         if cached.get("temp") is None or "days" not in cached:
             return None

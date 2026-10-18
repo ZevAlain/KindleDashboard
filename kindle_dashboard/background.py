@@ -11,8 +11,8 @@ from .emoji import _ensure_emoji_png, _iter_emoji_spans, convert_emoji_to_html
 from .geocode import geocode
 from .holidays import HOLIDAY_CACHE_TTL, _load_holiday_cache, fetch_holidays
 from .motto import MOTTO_TTL, _fetch_motto, _load_motto_cache, _motto_cache_path
-from .utils import _atomic_write_json, _cache_name, _cache_read, _cache_write
-from .weather import WEATHER_TTL, _fetch_weather_raw
+from .utils import _atomic_write_json, _cache_read, _cache_write
+from .weather import WEATHER_TTL, _fetch_weather_raw, weather_cache_key
 
 # ----------------- 后台缓存刷新（display 请求永不联网） -----------------
 # Kindle 页面请求必须毫秒级返回（e-ink 整页刷新要等页面加载完），所以所有"联网抓取"
@@ -83,22 +83,30 @@ def _bg_refresh_weather(data, ts):
         return
     lat = str(cfg.get("lat") or "").strip()
     lon = str(cfg.get("lon") or "").strip()
+    model = str(cfg.get("model") or "best_match")
+    # 抓取间隔（分钟）：admin 可配 15/30/60，默认 30（WEATHER_TTL 仅作缺省兜底）
+    try:
+        ttl_sec = int(cfg.get("ttl_min")) * 60
+    except (TypeError, ValueError):
+        ttl_sec = WEATHER_TTL
+    if ttl_sec not in (15 * 60, 30 * 60, 60 * 60):
+        ttl_sec = WEATHER_TTL
     if not (lat and lon):
         geo = geocode(location)      # 地名解析会联网（30 天缓存 + 失败退旧值），仅后台线程做
         if not geo or geo.get("lat") is None:
             return
         lat, lon = str(geo["lat"]), str(geo["lon"])
-    name = _cache_name("weather", "%s,%s" % (lat, lon))
+    name = weather_cache_key(lat, lon, model)
     cached = _cache_read(name) or {}
     if (cached.get("temp") is not None
-            and ts - int(cached.get("_fetched_at") or 0) < WEATHER_TTL
+            and ts - int(cached.get("_fetched_at") or 0) < ttl_sec
             and "days" in cached
-            and cached.get("v") == 3):   # v2 缓存只有今天/明天两列：重抓一次补成 昨天/今天/明天 三列
+            and cached.get("v") == 4):   # v2=两列对比；v3=三列；v4=加逐时降雨概率（条带），旧版重抓升级
         return
     if _fail_backoff_active("weather", ts):
         return
     try:
-        _cache_write(name, _fetch_weather_raw(lat, lon, ts))
+        _cache_write(name, _fetch_weather_raw(lat, lon, ts, model))
         _fail_state.pop("weather", None)
         _api_record("weather", True, ts)
     except Exception as e:

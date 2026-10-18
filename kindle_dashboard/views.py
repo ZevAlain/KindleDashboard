@@ -653,7 +653,15 @@ def register_views(app):
         weather = {
             "location": str(w_in.get('location', '') or '').strip(),
             "lat": str(w_in.get('lat', '') or '').strip(),
-            "lon": str(w_in.get('lon', '') or '').strip()
+            "lon": str(w_in.get('lon', '') or '').strip(),
+            # 模型/抓取间隔：白名单校验（normalize 也会兜底，这里先拦住非法值）
+            "model": (str(w_in.get('model') or 'best_match')
+                      if str(w_in.get('model') or '') in
+                      ("best_match", "cma_grapes_global", "ecmwf_ifs04", "gfs_seamless")
+                      else "best_match"),
+            "ttl_min": (int(w_in.get('ttl_min'))
+                        if str(w_in.get('ttl_min') or '') in ("15", "30", "60")
+                        else 30),
         }
 
         # 持锁：读原 last_reset_date 与 title，原子落盘。

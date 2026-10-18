@@ -118,6 +118,18 @@ def normalize(data):
     w.setdefault("location", "")
     w.setdefault("lat", "")
     w.setdefault("lon", "")
+    # 天气模型（open-meteo）：综合最优 / 中国气象局 / 欧洲中期 / 美国GFS。
+    # 模型参与天气缓存 key，切换后自然强制重抓，不需要额外清理。
+    if w.get("model") not in ("best_match", "cma_grapes_global", "ecmwf_ifs04", "gfs_seamless"):
+        w["model"] = "best_match"
+    # 天气抓取间隔（分钟）：15/30/60 三档，只影响后台刷新频率
+    if w.get("ttl_min") not in (15, 30, 60):
+        try:
+            w["ttl_min"] = int(w.get("ttl_min"))
+        except (TypeError, ValueError):
+            w["ttl_min"] = 30
+        if w.get("ttl_min") not in (15, 30, 60):
+            w["ttl_min"] = 30
     for i, p in enumerate(data["periods"]):
         p.setdefault("id", "p%d" % i)
         p.setdefault("name", "")

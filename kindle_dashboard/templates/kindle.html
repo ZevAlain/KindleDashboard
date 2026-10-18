@@ -99,6 +99,14 @@
         .cmp-table .tdy { color: #000000; font-weight: 700; }         /* 今日：与明日同粗（细字重 e-ink 发灰看不清） */
         .cmp-table .tmm { color: #000000; font-weight: 700; }         /* 明日：重点，粗 */
         .cmp-table .tyst { color: #000000; font-weight: 700; }        /* 昨天：历史对比列，同样加粗（e-ink 细字重发灰） */
+        /* 未来 8 小时降雨概率条带（面板最下方，恒显示）：8 格等分一行，黑块/黑框位置即"降雨曲线" */
+        .rain-strip { display: flex; gap: 5px; margin-top: 12px; }
+        .r-cell { flex: 1 1 0; min-width: 0; text-align: center; font-size: 15px; font-weight: 700;
+                  color: #000000; padding: 6px 0 7px; border: 2px solid transparent;
+                  box-sizing: border-box; line-height: 1.35; }
+        .r-lo  { color: #555555; font-weight: 400; }              /* <30%：弱存在感的浅字（无雨时段） */
+        .r-mid { border-color: #000000; }                          /* 30-59%：细黑框提醒 */
+        .r-hi  { background: #000000; color: #ffffff; }            /* ≥60%：黑底白字，最醒目 */
         .cmp-table th.tdy { color: #000000; font-weight: 700; }
         .cmp-table th.tmm { color: #000000; font-weight: 700; }
         .cmp-table th.tyst { color: #000000; font-weight: 700; }
@@ -450,18 +458,22 @@
                     {% endfor %}
                 </tr>
                 <tr>
-                    <td class="lab">日出</td>
+                    <td class="lab">日出日落</td>
                     {% for c in data['weather']['cmp'] %}
-                    <td class="{{ c['cls'] }}">{{ c['sunrise'] }}</td>
-                    {% endfor %}
-                </tr>
-                <tr>
-                    <td class="lab">日落</td>
-                    {% for c in data['weather']['cmp'] %}
-                    <td class="{{ c['cls'] }}">{{ c['sunset'] }}</td>
+                    <td class="{{ c['cls'] }}">{{ c['sunrise'] }} / {{ c['sunset'] }}</td>
                     {% endfor %}
                 </tr>
             </table>
+            {# 未来 8 小时降雨概率条带：恒显示（无雨也是一排浅格，避免有无之间布局跳动）。
+               档位：<30% 浅字 / 30-59% 细黑框 / ≥60% 黑底白字反白——黑块位置即"降雨曲线"。
+               v3 老缓存无逐时数据时不渲染，后台 30 分钟内重抓出 v4 自动补上。 #}
+            {% if data['weather']['rain'] %}
+            <div class="rain-strip" title="未来 8 小时降雨概率">
+                {% for r in data['weather']['rain'] %}
+                <span class="r-cell{% if r['p'] >= 60 %} r-hi{% elif r['p'] >= 30 %} r-mid{% else %} r-lo{% endif %}">{{ r['h'] }}时<br>{{ r['p'] }}%</span>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
         {% endif %}
         {# 待办整块包一层：点天气块时它整块隐藏、由下面的对比面板顶上来（替换，不是插在上面挤下面）。

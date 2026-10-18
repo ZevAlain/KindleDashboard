@@ -82,6 +82,14 @@
         .geo-search input { flex:1 1 auto; min-width:0; width:auto; }
         .geo-search .btn-add { flex:0 0 auto; margin-top:0; white-space:nowrap; }
         .geo-list { margin-top:8px; border:1px solid var(--line); border-radius:10px; overflow:hidden; display:none; background:#fff; }
+        .geo-map-wrap { position:relative; width:280px; height:280px; border:1px solid var(--line);
+                        border-radius:10px; overflow:hidden; background:#f1f3f6; }
+        .geo-map-wrap img { width:100%; height:100%; display:block; }
+        .geo-pin { position:absolute; width:14px; height:14px; background:#000000;
+                   border:3px solid #ffffff; border-radius:50%; transform:translate(-50%,-50%);
+                   box-shadow:0 0 0 1px rgba(0,0,0,.45); }
+        .geo-amap { display:inline-block; margin-top:8px; font-size:13.5px; font-weight:600;
+                    color:var(--accent); text-decoration:none; }
         .geo-item { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; font-size:13.5px; cursor:pointer; border-top:1px solid var(--line); }
         .geo-item:first-child { border-top:none; }
         .geo-item:hover { background:var(--accent-soft); }
@@ -251,11 +259,38 @@
                 <div class="row2">
                     <div class="field">
                         <label>③ 纬度</label>
-                        <input type="text" id="w_lat" placeholder="例如：22.54" value="{{ (data.get('weather') or {}).get('lat', '') }}">
+                        <input type="text" id="w_lat" placeholder="例如：22.54" value="{{ (data.get('weather') or {}).get('lat', '') }}" onchange="renderGeoMap()">
                     </div>
                     <div class="field">
                         <label>④ 经度</label>
-                        <input type="text" id="w_lon" placeholder="例如：114.06" value="{{ (data.get('weather') or {}).get('lon', '') }}">
+                        <input type="text" id="w_lon" placeholder="例如：114.06" value="{{ (data.get('weather') or {}).get('lon', '') }}" onchange="renderGeoMap()">
+                    </div>
+                </div>
+                {# 位置预览：OSM 瓦片（免 key，国内访问不稳时瓦片自动隐藏）+ 高德链接兜底 #}
+                <div class="field" id="geoMapField" style="display:none;">
+                    <label>⑤ 位置预览</label>
+                    <div id="geoMap"></div>
+                </div>
+                <div class="row2">
+                    <div class="field">
+                        <label>⑥ 天气模型</label>
+                        {% set _wm = (data.get('weather') or {}).get('model', 'best_match') %}
+                        <select id="w_model">
+                            <option value="best_match"{% if _wm == 'best_match' %} selected{% endif %}>综合最优（推荐）</option>
+                            <option value="cma_grapes_global"{% if _wm == 'cma_grapes_global' %} selected{% endif %}>中国气象局（CMA）</option>
+                            <option value="ecmwf_ifs04"{% if _wm == 'ecmwf_ifs04' %} selected{% endif %}>欧洲中期（ECMWF）</option>
+                            <option value="gfs_seamless"{% if _wm == 'gfs_seamless' %} selected{% endif %}>美国（GFS）</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>⑦ 抓取间隔</label>
+                        {% set _wt = (data.get('weather') or {}).get('ttl_min', 30) %}
+                        <select id="w_ttl">
+                            <option value="15"{% if _wt == 15 %} selected{% endif %}>15 分钟（更新鲜）</option>
+                            <option value="30"{% if _wt == 30 %} selected{% endif %}>30 分钟（默认）</option>
+                            <option value="60"{% if _wt == 60 %} selected{% endif %}>60 分钟（省流量）</option>
+                        </select>
+                    </div>
                 </div>
             </section>
         </div>
@@ -732,6 +767,35 @@
         document.getElementById('geo_list').style.display = 'none';
         document.getElementById('geo_msg').textContent =
           '已选中「' + it.label + '」，经纬度已自动填好，记得点「保存全部」。';
+        renderGeoMap();
+      }
+
+      // ---- 位置预览：OSM 官方瓦片（免 key 免登录，按经纬度算 z=11 城市级瓦片）+
+      //     CSS 定位中心 ● 标记；瓦片在国内访问不稳，onerror 整块隐藏，高德链接兜底。
+      //     高德 marker 链接同样免 key、国内直达（注意其坐标系为 GCJ-02，城市级预览偏差可忽略）。----
+      function renderGeoMap() {
+        var la = parseFloat(document.getElementById('w_lat').value);
+        var lo = parseFloat(document.getElementById('w_lon').value);
+        var field = document.getElementById('geoMapField');
+        var box = document.getElementById('geoMap');
+        if (!field || !box) return;
+        if (isNaN(la) || isNaN(lo)) { field.style.display = 'none'; return; }
+        var z = 11, n = Math.pow(2, z);
+        var xr = (lo + 180) / 360 * n;
+        var latR = la * Math.PI / 180;
+        var yr = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n;
+        var x = Math.floor(xr), y = Math.floor(yr);
+        var xf = (xr - x) * 100, yf = (yr - y) * 100;   // 标记在瓦片内的百分比位置
+        var nm = document.getElementById('w_location').value || '选中位置';
+        box.innerHTML =
+          '<div class="geo-map-wrap">' +
+            '<img src="https://tile.openstreetmap.org/' + z + '/' + x + '/' + y + '.png" alt="位置预览"' +
+                 ' onerror="this.parentNode.style.display=\'none\'">' +
+            '<span class="geo-pin" style="left:' + xf + '%;top:' + yf + '%;"></span>' +
+          '</div>' +
+          '<a class="geo-amap" target="_blank" rel="noopener" href="https://uri.amap.com/marker?position=' +
+            lo + ',' + la + '&name=' + encodeURIComponent(nm) + '">在高德地图中查看 →</a>';
+        field.style.display = '';
       }
 
       // ---- Tab 导航：hash 持久（刷新/分享深链保持当前页签）；state 全局共享，保存一次全量生效 ----
@@ -1043,7 +1107,9 @@
           weather: {
             location: document.getElementById('w_location').value,
             lat: document.getElementById('w_lat').value,
-            lon: document.getElementById('w_lon').value
+            lon: document.getElementById('w_lon').value,
+            model: (document.getElementById('w_model') || {}).value || 'best_match',
+            ttl_min: parseInt((document.getElementById('w_ttl') || {}).value, 10) || 30
           },
           periods: state.periods,
           items: state.items,
@@ -1106,6 +1172,7 @@
         renderFilter();
         renderItems();
         renderDispPills();
+        renderGeoMap();     // 已配置经纬度时直接显示位置预览
         var _sp = document.getElementById('seq_pos');
         if (_sp && state.seq_pos) { _sp.value = state.seq_pos; }
         pollApi();
