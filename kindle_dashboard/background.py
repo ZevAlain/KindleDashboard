@@ -5,7 +5,8 @@ import threading
 import time
 
 from .api_status import _api_record, _api_status_merge_disk
-from .aiweather import ai_configured, fetch_ai_weather, load_ai_text, write_ai_cache
+from .aiweather import (AI_PROMPT_VERSION, ai_configured, fetch_ai_weather,
+                        load_ai_text, write_ai_cache)
 from .config import CACHE_DIR, STATIC_EMOJI_DIR, now_cn
 from .data import DATA_LOCK, _get_data_locked, get_data, save_data
 from .emoji import _ensure_emoji_png, _iter_emoji_spans, convert_emoji_to_html
@@ -140,8 +141,10 @@ def _bg_refresh_ai_weather(data, ts):
         return           # 天气本身还没抓到：等下一轮（有数据了才有东西可分析）
     w_fetched_at = int(w_cached.get("_fetched_at") or 0)
     ai_text, ai_cached = load_ai_text()
-    if ai_text and ai_cached and int(ai_cached.get("_w_fetched_at") or 0) == w_fetched_at:
-        return           # 现有 AI 建议跟的就是当前这份天气数据：不必重新生成
+    if (ai_text and ai_cached
+            and int(ai_cached.get("_w_fetched_at") or 0) == w_fetched_at
+            and int(ai_cached.get("_pv") or 0) == AI_PROMPT_VERSION):
+        return           # 现有 AI 建议跟的是当前天气数据且提示词版本一致：不必重新生成
     if _fail_backoff_active("ai_weather", ts):
         return
     view = get_weather(cfg, now_cn())   # 组 prompt 用的展示数据（只读缓存，不联网）
@@ -149,7 +152,8 @@ def _bg_refresh_ai_weather(data, ts):
         return
     try:
         text = fetch_ai_weather(cfg, view, ts)
-        write_ai_cache({"_fetched_at": ts, "_w_fetched_at": w_fetched_at, "text": text})
+        write_ai_cache({"_fetched_at": ts, "_w_fetched_at": w_fetched_at,
+                        "_pv": AI_PROMPT_VERSION, "text": text})
         _fail_state.pop("ai_weather", None)
         _api_record("ai_weather", True, ts)
     except Exception as e:

@@ -20,6 +20,9 @@ AI_WEATHER_CACHE = "ai_weather.json"   # cache/ 下的缓存文件名
 AI_WEATHER_PROMPT_MAX = 60            # prompt 里要求的字数上限（汉字，含标点）
 AI_WEATHER_MAX = 66                   # 服务端硬截断：竖屏 2 行(34字/行)内、横屏 3 行(30字/行)内
 AI_TIMEOUT = 30                       # 第三方接口可能较慢，后台线程等得起
+# 提示词版本：改动提示词/数据组装时 +1，后台线程发现缓存里的版本旧了就强制重新
+# 生成（不等天气更新）——否则屏上会一直显示旧话术直到下一轮天气刷新。
+AI_PROMPT_VERSION = 2
 # 推理/思考类模型（GLM-4.5/5.x、DeepSeek-R1、Qwen3 等）的思考过程也计入输出额度：
 # 上限太小会被思考吃光、content 为空（真机翻车：300 时思考模型答不完就截断，
 # 用户实测 GLM-5.3 即此症状）。重度推理模型对简单任务也可能思考上千 token，
@@ -105,33 +108,50 @@ def clean_ai_text(raw):
     return t
 
 
+def _cmp_line(c):
+    """对比表一列 -> 紧凑指标串（缺值的 — 项跳过）。c 是 view['cmp'] 里的一列。"""
+    if not c:
+        return ""
+    seg = []
+    for k in ("desc", "temp", "wind", "air"):
+        v = str(c.get(k) or "").strip()
+        if v and v != u"—":
+            seg.append(v)
+    return u"，".join(seg)
+
+
 def build_prompt(view):
-    """天气视图数据 -> 紧凑中文摘要（喂给模型的 user 消息）。view 是 get_weather 的返回。"""
+    """天气视图数据 -> 紧凑中文摘要（喂给模型的 user 消息）。view 是 get_weather 的返回。
+    核心是「昨天 vs 今天」的各指标对比（面板三列数据本就有昨天列），让模型点评变化。"""
     parts = []
+    cmp_cols = {str(c.get("label") or ""): c for c in (view.get("cmp") or [])}
+    yst, tdy = cmp_cols.get(u"昨天"), cmp_cols.get(u"今天")
+    if yst or tdy:
+        if yst:
+            parts.append(u"昨天：%s" % _cmp_line(yst))
+        if tdy:
+            extra = _cmp_line(tdy)
+            if view.get("feel"):
+                extra += u"，%s" % view["feel"]
+            parts.append(u"今天：%s" % extra)
     if view.get("desc"):
         parts.append(u"当前%s" % view["desc"])
-    if view.get("range"):
-        parts.append(u"今日%s" % view["range"])
-    if view.get("feel"):
-        parts.append(view["feel"])
-    if view.get("wind"):
-        parts.append(view["wind"])
     rain = view.get("rain") or []
     if rain:
         hours = u"、".join(u"%s时%d%%" % (r["h"], int(r["p"])) for r in rain)
         parts.append(u"未来%d小时降雨概率：%s" % (len(rain), hours))
     else:
         parts.append(u"暂无逐时降雨数据")
-    if view.get("air"):
-        parts.append(view["air"])
     if view.get("uv"):
         parts.append(view["uv"])
     return u"；".join(parts)
 
 
 AI_SYSTEM_PROMPT = (
-    u"你是墨水屏天气助手。根据提供的天气数据，用一句话给出建议：先说降雨情况"
-    u"（未来数小时降雨概率的变化、要不要带伞），再给穿衣建议（结合气温与体感）。"
+    u"你是墨水屏天气助手。根据提供的天气数据（含昨天与今天的对比），用一句话点评今天："
+    u"1) 与昨天相比的关键变化（升降温幅度、转晴转雨、风力、空气等明显差异）；"
+    u"2) 据此推断今天整体情况（如午后转雨、早晚偏凉、污染加重等）；"
+    u"3) 给出具体可执行的穿衣建议（视降雨概率决定是否带伞）。"
     u"要求：纯文本，不超过%d个汉字（含标点），不分段不换行，不用markdown、"
     u"不用任何emoji或装饰符号，直接输出内容本身。" % AI_WEATHER_PROMPT_MAX
 )
