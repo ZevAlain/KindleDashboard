@@ -583,7 +583,7 @@ def register_views(app):
         if len(raw) > ENC_IMG_MAX_UPLOAD:
             return jsonify({"ok": False, "error": "图片超过 5MB 上限"}), 400
         try:
-            fname = save_upload(raw)
+            fname, dark_bg = save_upload(raw)
         except ValueError as e:
             return jsonify({"ok": False, "error": str(e)}), 200
         with DATA_LOCK:
@@ -599,7 +599,9 @@ def register_views(app):
             enc["imgs"] = imgs
             data["encourage"] = enc
             save_data(data)
-        return jsonify({"ok": True, "f": fname, "url": file_url(fname)})
+        return jsonify({"ok": True, "f": fname, "url": file_url(fname),
+                        "warn": (u"这张图自带深色背景，墨水屏上会显示成黑底块，建议换白底或透明底版本重传"
+                                 if dark_bg else "")})
 
 
     @app.route('/admin/encourage_img_del', methods=['POST'])

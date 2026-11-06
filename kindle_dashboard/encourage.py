@@ -130,9 +130,35 @@ def new_filename():
         time.sleep(0.002)
 
 
+def dark_border_ratio(im):
+    """四边像素的暗色占比（灰度 <120）：占比高 = 上传图自带深色背景（黑底被固化的
+    那种），墨水屏上会渲染成黑块。只做检测提示、不自动修改——服务器分不清
+    哪是背景哪是人物，改了反而毁图。采样四边（各 ~40 点），永不抛异常。"""
+    try:
+        g = im if im.mode == "L" else im.convert("L")
+        w, h = g.size
+        px = g.load()
+        dark = total = 0
+        for x in range(0, w, max(1, w // 40)):
+            for y in (0, h - 1):
+                total += 1
+                if px[x, y] < 120:
+                    dark += 1
+        for y in range(0, h, max(1, h // 40)):
+            for x in (0, w - 1):
+                total += 1
+                if px[x, y] < 120:
+                    dark += 1
+        return dark / float(total) if total else 0.0
+    except Exception:
+        return 0.0
+
+
 def save_upload(raw):
     """上传的图片字节 -> 透明底合成白底 + 灰度 + 缩放后存为 char_<ts>.png。
-    成功返回新文件名；文件不是图片 / 超 5MB / 缺 Pillow 且原图 >500KB 抛 ValueError。"""
+    成功返回 (文件名, 背景偏暗警示 bool)：警示=True 表示图自带深色背景，墨水屏上
+    会显示为黑底块，admin 弹提示建议换白底/透明底版本（不阻断，用户可自担）。
+    文件不是图片 / 超 5MB / 缺 Pillow 且原图 >500KB 抛 ValueError。"""
     if len(raw) > ENC_IMG_MAX_UPLOAD:
         raise ValueError(u"图片超过 5MB 上限")
     os.makedirs(ENC_DIR, exist_ok=True)
@@ -149,19 +175,20 @@ def save_upload(raw):
             bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
             bg.alpha_composite(im)      # 透明底合成白底：否则透明区按 RGB(0,0,0) 变黑块
             im = bg
+        dark = dark_border_ratio(im) > 0.5   # 合成白底后判（透明图的角落此时已是白）
         im = im.convert("L")            # 彩色卡通在墨水屏上发灰：统一转灰度（保细节）
         if im.height > ENC_IMG_HEIGHT:
             w = max(1, int(round(im.width * ENC_IMG_HEIGHT / float(im.height))))
             im = im.resize((w, ENC_IMG_HEIGHT), Image.LANCZOS)
         im.save(file_path(fname), "PNG")
-        return fname
+        return fname, dark
     except ImportError:
         # Pillow 是可选依赖（与 emoji 管线同款降级）：原样存，交给浏览器渲染
         if len(raw) > 500 * 1024:
             raise ValueError(u"服务器未安装 Pillow，原图需 ≤500KB（建议装上 Pillow 自动转灰度）")
         with open(file_path(fname), "wb") as f:
             f.write(raw)
-        return fname
+        return fname, False
 
 
 def delete_file(fname):

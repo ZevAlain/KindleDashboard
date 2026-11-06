@@ -1069,6 +1069,10 @@
               ENC_THUMBS.push([j.f, j.url]);
               if (!ENC_SEL) { ENC_SEL = j.f; }
               renderEncImgs();
+              if (j.warn) {   // 深色背景检测：不阻断，但明确告知墨水屏上会是黑底块
+                msg.style.color = '#d97706';
+                msg.textContent = '已上传，但注意：' + j.warn + '（当前这张可以先删掉）';
+              }
             } else {
               msg.style.color = 'var(--danger)';
               msg.textContent = '上传失败：' + ((j && j.error) || '未知错误');
