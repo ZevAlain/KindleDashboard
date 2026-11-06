@@ -435,6 +435,7 @@ def register_views(app):
     def admin_api_status():
         """PC 端后台「数据源」tab：各外部 API 最近成功/失败（只读内存状态，不联网）。"""
         import copy
+        from .aiweather import ai_configured
         cfg = get_data().get("weather") or {}
         return jsonify({
             "now_ts": int(now_cn().timestamp()),
@@ -442,6 +443,8 @@ def register_views(app):
             "status": copy.deepcopy(_api_status),   # 拷贝后返回：后台线程随时在写，直接迭代可能撞 RuntimeError
             "weather_on": bool(str(cfg.get("location") or "").strip()
                                and str(cfg.get("lat") or "").strip()),
+            # AI 分析是否配置齐全（数据源 tab 的未配置提示用；未配置时后台不抓、行不显示状态）
+            "ai_on": (str(cfg.get("rain_mode") or "prob") == "ai" and ai_configured(cfg)),
         })
 
 
@@ -525,6 +528,32 @@ def register_views(app):
             return jsonify({"ok": True, "q": q, "results": geocode_search(q, count=6)})
         except Exception as e:
             return jsonify({"ok": False, "q": q, "error": str(e), "results": []})
+
+
+    @app.route('/admin/ai_test', methods=['POST'])
+    @login_required
+    def admin_ai_test():
+        """AI 接口连通性测试：用表单**当前值**（不必先保存）实时调一次 OpenAI 兼容接口。
+        已有天气缓存时用真实天气 prompt（返回的就是将来上屏的那种建议文本），
+        没有则用连通性测试 prompt。admin 路径允许联网（与地区搜索同一原则）。
+        失败返回可读错误（key 无效 / 地址不通 / 模型名错），绝不 500。"""
+        from .aiweather import fetch_ai_weather
+        body = request.get_json(silent=True) or {}
+        cfg = {
+            "ai_base_url": str(body.get('ai_base_url') or '').strip()[:300],
+            "ai_api_key": str(body.get('ai_api_key') or '').strip()[:200],
+            "ai_model": str(body.get('ai_model') or '').strip()[:100],
+        }
+        view = None
+        try:
+            view = get_weather(get_data().get("weather") or {}, now_cn())
+        except Exception:
+            view = None
+        try:
+            text = fetch_ai_weather(cfg, view)
+            return jsonify({"ok": True, "text": text})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e) or "调用失败"}), 200
 
 
     @app.route('/panel/<name>', methods=['POST'])
@@ -662,6 +691,14 @@ def register_views(app):
             "ttl_min": (int(w_in.get('ttl_min'))
                         if str(w_in.get('ttl_min') or '') in ("15", "30", "60")
                         else 30),
+            # 面板底部条带：prob=降雨概率（默认）/ ai=AI 分析；接口三件套一并收下
+            # （normalize 会再 strip/截长兜底；空 = 未配置，后台线程自会跳过）
+            "rain_mode": (str(w_in.get('rain_mode') or 'prob')
+                          if str(w_in.get('rain_mode') or '') in ("prob", "ai")
+                          else "prob"),
+            "ai_base_url": str(w_in.get('ai_base_url') or '').strip()[:300],
+            "ai_api_key": str(w_in.get('ai_api_key') or '').strip()[:200],
+            "ai_model": str(w_in.get('ai_model') or '').strip()[:100],
         }
 
         # 持锁：读原 last_reset_date 与 title，原子落盘。

@@ -130,6 +130,14 @@ def normalize(data):
             w["ttl_min"] = 30
         if w.get("ttl_min") not in (15, 30, 60):
             w["ttl_min"] = 30
+    # 天气面板底部条带：prob=降雨概率条带（默认）/ ai=AI 分析（OpenAI 兼容接口，
+    # 后台线程生成、display 只读缓存，未生成/失败时回退概率条带）
+    if w.get("rain_mode") not in ("prob", "ai"):
+        w["rain_mode"] = "prob"
+    # AI 接口三件套（OpenAI 标准 /chat/completions，第三方服务）：strip + 长度上限防脏数据
+    w["ai_base_url"] = str(w.get("ai_base_url") or "").strip()[:300]
+    w["ai_api_key"] = str(w.get("ai_api_key") or "").strip()[:200]
+    w["ai_model"] = str(w.get("ai_model") or "").strip()[:100]
     for i, p in enumerate(data["periods"]):
         p.setdefault("id", "p%d" % i)
         p.setdefault("name", "")

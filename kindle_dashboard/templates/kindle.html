@@ -101,6 +101,14 @@
         .cmp-table .tyst { color: #000000; font-weight: 700; }        /* 昨天：历史对比列，同样加粗（e-ink 细字重发灰） */
         /* 未来 8 小时降雨概率条带（面板最下方，恒显示）：8 格等分一行，黑块/黑框位置即"降雨曲线" */
         .rain-strip { display: flex; gap: 5px; margin-top: 12px; }
+        /* AI 天气分析（admin 可配，替换概率条带的位置）：一句「降雨情况+穿衣建议」。
+           文本服务端已清洗并硬截 66 字（竖屏 2 行 / 横屏 3 行内必定容纳）；16/700 实黑。
+           行首「AI」小徽章黑底白字，与概率条带一眼区分来源。 */
+        .ai-line { margin-top: 12px; font-size: 16px; font-weight: 700; line-height: 1.5;
+                   color: #000000; }
+        .ai-tag { display: inline-block; background: #000000; color: #ffffff; font-size: 12px;
+                  font-weight: 800; padding: 1px 6px 2px; margin-right: 8px;
+                  vertical-align: 2px; letter-spacing: 1px; }
         .r-cell { flex: 1 1 0; min-width: 0; text-align: center; font-size: 15px; font-weight: 700;
                   color: #000000; padding: 6px 0 7px; border: 2px solid transparent;
                   box-sizing: border-box; line-height: 1.35; }
@@ -464,10 +472,16 @@
                     {% endfor %}
                 </tr>
             </table>
+            {# 面板底部条带（admin 可配）：降雨概率 / AI 分析。AI 文本由后台线程调
+               OpenAI 兼容接口生成、落盘缓存后注入（display 路径零联网）；还没生成过
+               或接口挂了 → 不注入，自然回退概率条带（绝不空块，与离线退缓存同一哲学）。
+               字数服务端双层限制：prompt ≤60 字 + 硬截 66 字（竖屏 2 行 / 横屏 3 行内）。 #}
+            {% if data['weather'].get('ai_line') %}
+            <div class="ai-line" title="AI 天气分析（随天气数据更新）"><span class="ai-tag">AI</span>{{ data['weather']['ai_line'] }}</div>
+            {% elif data['weather']['rain'] %}
             {# 未来 8 小时降雨概率条带：恒显示（无雨也是一排浅格，避免有无之间布局跳动）。
                档位：<30% 浅字 / 30-59% 细黑框 / ≥60% 黑底白字反白——黑块位置即"降雨曲线"。
                v3 老缓存无逐时数据时不渲染，后台 30 分钟内重抓出 v4 自动补上。 #}
-            {% if data['weather']['rain'] %}
             <div class="rain-strip" title="未来 8 小时降雨概率">
                 {% for r in data['weather']['rain'] %}
                 <span class="r-cell{% if r['p'] >= 60 %} r-hi{% elif r['p'] >= 30 %} r-mid{% else %} r-lo{% endif %}">{{ r['h'] }}时<br>{{ r['p'] }}%</span>

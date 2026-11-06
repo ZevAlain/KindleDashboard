@@ -5,6 +5,7 @@ import threading
 import time
 
 from .api_status import _api_record, _api_status_merge_disk
+from .aiweather import ai_configured, fetch_ai_weather, load_ai_text, write_ai_cache
 from .config import CACHE_DIR, STATIC_EMOJI_DIR, now_cn
 from .data import DATA_LOCK, _get_data_locked, get_data, save_data
 from .emoji import _ensure_emoji_png, _iter_emoji_spans, convert_emoji_to_html
@@ -12,7 +13,7 @@ from .geocode import geocode
 from .holidays import HOLIDAY_CACHE_TTL, _load_holiday_cache, fetch_holidays
 from .motto import MOTTO_TTL, _fetch_motto, _load_motto_cache, _motto_cache_path
 from .utils import _atomic_write_json, _cache_read, _cache_write
-from .weather import WEATHER_TTL, _fetch_weather_raw, weather_cache_key
+from .weather import WEATHER_TTL, _fetch_weather_raw, get_weather, weather_cache_key
 
 # ----------------- 后台缓存刷新（display 请求永不联网） -----------------
 # Kindle 页面请求必须毫秒级返回（e-ink 整页刷新要等页面加载完），所以所有"联网抓取"
@@ -76,14 +77,29 @@ def _bg_refresh_motto(ts):
         _api_record("motto", False, ts, "cache write failed")
 
 
-def _bg_refresh_weather(data, ts):
-    cfg = data.get("weather") or {}
+def _resolve_weather_cache(cfg):
+    """weather 配置 -> (缓存名, lat, lon)。经纬度缺失时联网解析地名
+    （30 天缓存 + 失败退旧值，仅后台线程做）；没配地区/解析不到返回
+    (None, None, None)——天气抓取与 AI 分析都不用跑。"""
     location = str(cfg.get("location") or "").strip()
     if not location:
-        return
+        return None, None, None
     lat = str(cfg.get("lat") or "").strip()
     lon = str(cfg.get("lon") or "").strip()
     model = str(cfg.get("model") or "best_match")
+    if not (lat and lon):
+        geo = geocode(location)      # 地名解析会联网（30 天缓存 + 失败退旧值），仅后台线程做
+        if not geo or geo.get("lat") is None:
+            return None, None, None
+        lat, lon = str(geo["lat"]), str(geo["lon"])
+    return weather_cache_key(lat, lon, model), lat, lon
+
+
+def _bg_refresh_weather(data, ts):
+    cfg = data.get("weather") or {}
+    name, lat, lon = _resolve_weather_cache(cfg)
+    if name is None:
+        return
     # 抓取间隔（分钟）：admin 可配 15/30/60，默认 30（WEATHER_TTL 仅作缺省兜底）
     try:
         ttl_sec = int(cfg.get("ttl_min")) * 60
@@ -91,12 +107,6 @@ def _bg_refresh_weather(data, ts):
         ttl_sec = WEATHER_TTL
     if ttl_sec not in (15 * 60, 30 * 60, 60 * 60):
         ttl_sec = WEATHER_TTL
-    if not (lat and lon):
-        geo = geocode(location)      # 地名解析会联网（30 天缓存 + 失败退旧值），仅后台线程做
-        if not geo or geo.get("lat") is None:
-            return
-        lat, lon = str(geo["lat"]), str(geo["lon"])
-    name = weather_cache_key(lat, lon, model)
     cached = _cache_read(name) or {}
     if (cached.get("temp") is not None
             and ts - int(cached.get("_fetched_at") or 0) < ttl_sec
@@ -106,12 +116,45 @@ def _bg_refresh_weather(data, ts):
     if _fail_backoff_active("weather", ts):
         return
     try:
-        _cache_write(name, _fetch_weather_raw(lat, lon, ts, model))
+        _cache_write(name, _fetch_weather_raw(lat, lon, ts, cfg.get("model")))
         _fail_state.pop("weather", None)
         _api_record("weather", True, ts)
     except Exception as e:
         _fail_record("weather", ts)
         _api_record("weather", False, ts, e)
+
+
+def _bg_refresh_ai_weather(data, ts):
+    """AI 天气分析（OpenAI 兼容接口）：rain_mode=ai 且接口配置齐全时，随天气数据
+    更新重新生成一句「降雨情况 + 穿衣建议」，落盘 cache/ai_weather.json，display 只读。
+    天气缓存还没有/还没换新时不调用（不白花 token）；失败退避 10 分钟与其他来源一致；
+    display 侧接口挂了自然回退概率条带（get_weather 不注入 ai_line）。"""
+    cfg = data.get("weather") or {}
+    if str(cfg.get("rain_mode") or "prob") != "ai" or not ai_configured(cfg):
+        return
+    name = _resolve_weather_cache(cfg)[0]
+    if name is None:
+        return
+    w_cached = _cache_read(name) or {}
+    if w_cached.get("temp") is None:
+        return           # 天气本身还没抓到：等下一轮（有数据了才有东西可分析）
+    w_fetched_at = int(w_cached.get("_fetched_at") or 0)
+    ai_text, ai_cached = load_ai_text()
+    if ai_text and ai_cached and int(ai_cached.get("_w_fetched_at") or 0) == w_fetched_at:
+        return           # 现有 AI 建议跟的就是当前这份天气数据：不必重新生成
+    if _fail_backoff_active("ai_weather", ts):
+        return
+    view = get_weather(cfg, now_cn())   # 组 prompt 用的展示数据（只读缓存，不联网）
+    if view is None:
+        return
+    try:
+        text = fetch_ai_weather(cfg, view, ts)
+        write_ai_cache({"_fetched_at": ts, "_w_fetched_at": w_fetched_at, "text": text})
+        _fail_state.pop("ai_weather", None)
+        _api_record("ai_weather", True, ts)
+    except Exception as e:
+        _fail_record("ai_weather", ts)
+        _api_record("ai_weather", False, ts, e)
 
 
 def _emoji_asset_ready(cp):
@@ -166,6 +209,7 @@ def _cache_refresher_loop():
             _bg_refresh_holidays(ts)
             _bg_refresh_motto(ts)
             _bg_refresh_weather(data, ts)
+            _bg_refresh_ai_weather(data, ts)
             _bg_refresh_emojis()
         except Exception:
             pass    # 后台线程必须永不死

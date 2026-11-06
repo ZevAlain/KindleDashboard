@@ -467,7 +467,15 @@ def get_weather(cfg, now):
         # 老缓存缺 days（昨天/今天/明天对比表）字段视为不兼容，后台线程会强制重抓一次
         if cached.get("temp") is None or "days" not in cached:
             return None
-        return _weather_view(cached, label, now)
+        view = _weather_view(cached, label, now)
+        # AI 分析模式（admin 可配）：底部条带换成 AI 建议。只读缓存、绝不联网；
+        # 还没生成过/接口挂了 → 不注入，模板自然回退降雨概率条带（绝不空块）
+        if str(cfg.get("rain_mode") or "prob") == "ai":
+            from .aiweather import load_ai_text
+            ai_text, _c = load_ai_text()
+            if ai_text:
+                view["ai_line"] = ai_text
+        return view
     except Exception:
         return None
 

@@ -241,7 +241,7 @@
             <section class="card">
                 <h3><span class="dot"></span>天气<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_weather', this)" title="设置说明">?</button></h3>
                 <p class="sub">设置看板右上角显示的天气地区。</p>
-                <div class="help-box" id="h_weather" style="display:none;">数据来自 open-meteo（免费、无需 key），半小时更新一次；断网退回上次缓存，完全取不到就不显示这块。<b>先搜地区</b>，从结果里点一条，名称与经纬度自动填好；显示地区留空 = 看板不显示天气。</div>
+                <div class="help-box" id="h_weather" style="display:none;">数据来自 open-meteo（免费、无需 key），半小时更新一次；断网退回上次缓存，完全取不到就不显示这块。<b>先搜地区</b>，从结果里点一条，名称与经纬度自动填好；显示地区留空 = 看板不显示天气。<b>面板底部条带</b>：默认显示未来 8 小时降雨概率；选「AI 分析」则换成一句 AI 生成的降雨+穿衣建议（限 60 字内，随天气数据更新重新生成，断网显示上次结果、生成失败自动退回概率条带）。AI 走 OpenAI 兼容接口（第三方服务自己注册），填好 Base URL / API Key / 模型名后点「测试接口」即可验证，不必先保存。</div>
                 <div class="field">
                     <label>① 搜索地区</label>
                     <div class="geo-search">
@@ -290,6 +290,36 @@
                             <option value="30"{% if _wt == 30 %} selected{% endif %}>30 分钟（默认）</option>
                             <option value="60"{% if _wt == 60 %} selected{% endif %}>60 分钟（省流量）</option>
                         </select>
+                    </div>
+                </div>
+                {% set _rw = data.get('weather') or {} %}
+                <div class="row2">
+                    <div class="field">
+                        <label>⑧ 面板底部条带</label>
+                        <select id="rain_mode">
+                            <option value="prob"{% if _rw.get('rain_mode', 'prob') != 'ai' %} selected{% endif %}>降雨概率条带（默认）</option>
+                            <option value="ai"{% if _rw.get('rain_mode') == 'ai' %} selected{% endif %}>AI 分析（降雨+穿衣建议）</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="aiFields">
+                    <div class="field">
+                        <label>AI 接口 · Base URL（OpenAI 兼容；结尾不用带 /chat/completions，带了也兼容）</label>
+                        <input type="text" id="ai_base_url" placeholder="例如：https://api.example.com/v1" value="{{ _rw.get('ai_base_url', '') }}">
+                    </div>
+                    <div class="row2">
+                        <div class="field">
+                            <label>AI 接口 · API Key</label>
+                            <input type="text" id="ai_api_key" placeholder="sk-..." value="{{ _rw.get('ai_api_key', '') }}">
+                        </div>
+                        <div class="field">
+                            <label>AI 模型名</label>
+                            <input type="text" id="ai_model" placeholder="例如：gpt-4o-mini / deepseek-chat" value="{{ _rw.get('ai_model', '') }}">
+                        </div>
+                    </div>
+                    <div class="field" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <button type="button" class="btn-add" style="margin-top:0;" onclick="aiTest(this)">测试接口（用当前填写的值，不必先保存）</button>
+                        <span class="muted" id="ai_test_msg">选「AI 分析」时三个字段都必填；已配置的 Key 会显示在此处并随备份导出。</span>
                     </div>
                 </div>
             </section>
@@ -770,6 +800,45 @@
         renderGeoMap();
       }
 
+      // AI 接口连通性测试：用表单当前值（未保存也可测）实时调一次 OpenAI 兼容接口。
+      // 已有天气缓存时返回的就是将来上屏的那种建议文本；接口慢最长等 30 秒。
+      function aiTest(btn) {
+        var msg = document.getElementById('ai_test_msg');
+        var payload = {
+          ai_base_url: (document.getElementById('ai_base_url') || {}).value || '',
+          ai_api_key: (document.getElementById('ai_api_key') || {}).value || '',
+          ai_model: (document.getElementById('ai_model') || {}).value || ''
+        };
+        if (!payload.ai_base_url || !payload.ai_api_key || !payload.ai_model) {
+          msg.style.color = 'var(--danger)';
+          msg.textContent = '请先把 Base URL / API Key / 模型名三个字段都填好再测试。';
+          return;
+        }
+        btn.disabled = true;
+        msg.style.color = '';
+        msg.textContent = '调用中...（接口慢时最长等 30 秒）';
+        fetch('/admin/ai_test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function (r) { return r.json(); })
+          .then(function (j) {
+            btn.disabled = false;
+            if (j && j.ok) {
+              msg.style.color = '#16a34a';
+              msg.textContent = '接口可用，返回示例：「' + (j.text || '') + '」';
+            } else {
+              msg.style.color = 'var(--danger)';
+              msg.textContent = '失败：' + ((j && j.error) || '未知错误');
+            }
+          })
+          .catch(function (e) {
+            btn.disabled = false;
+            msg.style.color = 'var(--danger)';
+            msg.textContent = '请求失败：' + (e.message || e);
+          });
+      }
+
       // ---- 位置预览：OSM 官方瓦片（免 key 免登录，按经纬度算 z=11 城市级瓦片）+
       //     CSS 定位中心 ● 标记；瓦片在国内访问不稳，onerror 整块隐藏，高德链接兜底。
       //     高德 marker 链接同样免 key、国内直达（注意其坐标系为 GCJ-02，城市级预览偏差可忽略）。----
@@ -1050,12 +1119,13 @@
       function renderApi(data) {
         var el = document.getElementById('apiList');
         if (!el) { return; }
-        var order = ['weather', 'holiday', 'holiday_next', 'motto', 'almanac'];
+        var order = ['weather', 'ai_weather', 'holiday', 'holiday_next', 'motto', 'almanac'];
         var html = '';
         for (var i = 0; i < order.length; i++) {
           var key = order[i];
           var src2 = data.sources[key];
           if (!src2) { continue; }   // 来源未上线（如 almanac）不显示
+          if (key === 'ai_weather' && !data.ai_on) { continue; }   // AI 未启用不显示状态行
           var st = (data.status || {})[key] || {};
           var cls = 'idle', label = '未抓取';
           if (st.last_ok && (!st.last_fail || st.last_ok >= st.last_fail)) { cls = 'ok'; label = '正常'; }
@@ -1070,6 +1140,9 @@
         }
         if (data.weather_on === false) {
           html = '<div class="muted" style="margin-bottom:10px">提示：天气未配置（地区为空），天气来源不会抓取，直到在「天气」页签设置地区。</div>' + html;
+        }
+        if (data.ai_on === false) {
+          html += '<div class="muted" style="margin-top:6px">提示：AI 天气分析未启用（「天气」页签的底部条带未选「AI 分析」，或 Base URL / API Key / 模型名未配置齐全）。</div>';
         }
         el.innerHTML = html;
       }
@@ -1109,7 +1182,11 @@
             lat: document.getElementById('w_lat').value,
             lon: document.getElementById('w_lon').value,
             model: (document.getElementById('w_model') || {}).value || 'best_match',
-            ttl_min: parseInt((document.getElementById('w_ttl') || {}).value, 10) || 30
+            ttl_min: parseInt((document.getElementById('w_ttl') || {}).value, 10) || 30,
+            rain_mode: (document.getElementById('rain_mode') || {}).value || 'prob',
+            ai_base_url: (document.getElementById('ai_base_url') || {}).value || '',
+            ai_api_key: (document.getElementById('ai_api_key') || {}).value || '',
+            ai_model: (document.getElementById('ai_model') || {}).value || ''
           },
           periods: state.periods,
           items: state.items,
