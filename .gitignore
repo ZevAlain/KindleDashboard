@@ -18,3 +18,6 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# 用户本地测试素材（版权人物图，绝不进仓库）
+resoure/

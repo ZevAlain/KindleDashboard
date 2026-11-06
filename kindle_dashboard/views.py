@@ -16,6 +16,8 @@ from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_lock
                    gen_client_id, load_data, normalize, save_data,
                    valid_item_freq, valid_item_time)
 from .emoji import convert_emoji_to_html
+from .encourage import (ENC_IMG_MAX_UPLOAD, ENC_MAX_IMGS, delete_file, file_exists,
+                        file_url, img_urls, norm_encourage, render_phrases, save_upload)
 from .geocode import geocode_search
 from .holidays import get_holiday_events, nearest_holiday
 from .lunardate import (_LUNAR_DAY_CN, _LUNAR_MONTH_CN, huangli_day,
@@ -338,8 +340,9 @@ def register_views(app):
     @app.after_request
     def _long_cache_static_emoji(resp):
         """emoji 图片按 codepoint 命名、内容永不变化：给一年强缓存，
-        免得每次整页刷新每张图都走一次 304 往返（弱 WiFi 下积少成多）。"""
-        if request.path.startswith('/static/emoji/'):
+        免得每次整页刷新每张图都走一次 304 往返（弱 WiFi 下积少成多）。
+        鼓励模式人物图同款：URL 带 ?v=mtime 版本号，换图后地址变化自然取新图。"""
+        if request.path.startswith('/static/emoji/') or request.path.startswith('/static/encourage/'):
             resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
         return resp
 
@@ -401,6 +404,13 @@ def register_views(app):
                 "seq": (_seq_map.get(it["id"]) if _seq_map else None)
             } for it in visible
         ]
+        # 鼓励模式（打勾彩蛋）：开关开着且人物图已上传才下发。话术服务端渲染成最终
+        # 文案；图按配置下发候选列表（人物随机=全部 / 固定=选中的那张），JS 各自随机。
+        # 没图/没开 = None，模板不渲染弹窗节点，零开销
+        _enc = norm_encourage(data.get("encourage")) or {}
+        _enc_urls = img_urls(_enc) if _enc.get("on") else []
+        kindle["encourage"] = ({"phrases": render_phrases(_enc), "imgs": _enc_urls}
+                               if (_enc.get("on") and _enc_urls) else None)
         # 横版模式：?land=0(竖版) | 1(横版90°) | 2(倒立180°) | 3(横版270°) —— 四态循环
         # 显式参数优先（含用户手动切正放的 ?land=0）；URL 没带 land（Kindle 长时间锁屏自动重启、
         # 浏览器丢了页面状态后重新打开页面）→ 按 admin 配置的默认方向渲染
@@ -452,9 +462,12 @@ def register_views(app):
     @login_required
     def admin():
         data = get_data()
+        # 人物图缩略图墙数据：[(文件名, 带版本号的URL)]（磁盘上已消失的自动剔除）
+        enc = norm_encourage(data.get("encourage")) or {}
+        thumbs = [[f, file_url(f)] for f in (enc.get("imgs") or []) if file_exists(f)]
         # 版本号在此显示（不侵占 display 空间）：单一来源 config.APP_VERSION（CI 注入）
         return render_template('admin.html', data=data, data_json=data,
-                               app_version=APP_VERSION)
+                               app_version=APP_VERSION, enc_thumbs=thumbs)
 
 
     @app.route('/admin/export')
@@ -554,6 +567,61 @@ def register_views(app):
             return jsonify({"ok": True, "text": text})
         except Exception as e:
             return jsonify({"ok": False, "error": str(e) or "调用失败"}), 200
+
+
+    @app.route('/admin/encourage_img', methods=['POST'])
+    @login_required
+    def admin_encourage_img():
+        """鼓励模式人物图上传（multipart file 字段）：白底合成+灰度+缩放后存数据卷
+        static/encourage/，并立即追加进 data.json 的候选列表——**上传即生效**，不依赖
+        「保存」；第一张自动设为固定人物。上限 8 张（超了先删几张）。
+        ?key= 通路刻意进不了这里，只有登录的管理页能传。"""
+        f = request.files.get('file')
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "没有选择文件"}), 400
+        raw = f.read(ENC_IMG_MAX_UPLOAD + 1)
+        if len(raw) > ENC_IMG_MAX_UPLOAD:
+            return jsonify({"ok": False, "error": "图片超过 5MB 上限"}), 400
+        try:
+            fname = save_upload(raw)
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 200
+        with DATA_LOCK:
+            data = _get_data_locked()
+            enc = norm_encourage(data.get("encourage")) or {}
+            imgs = [x for x in (enc.get("imgs") or []) if file_exists(x)]  # 顺带剔除磁盘上已消失的
+            if len(imgs) >= ENC_MAX_IMGS:
+                delete_file(fname)
+                return jsonify({"ok": False, "error": "最多 %d 张人物图，先删除一些再上传" % ENC_MAX_IMGS}), 200
+            imgs.append(fname)
+            if not enc.get("img"):
+                enc["img"] = fname        # 第一张自动成为固定人物（随机开着时该值闲置）
+            enc["imgs"] = imgs
+            data["encourage"] = enc
+            save_data(data)
+        return jsonify({"ok": True, "f": fname, "url": file_url(fname)})
+
+
+    @app.route('/admin/encourage_img_del', methods=['POST'])
+    @login_required
+    def admin_encourage_img_del():
+        """删除一张人物图：data.json 列表与磁盘文件一起清理；删的是固定人物时
+        自动改选剩余第一张；最后一张也删掉 = 关闭弹窗资格（开关再开也没图不弹）。"""
+        payload = request.get_json(silent=True) or {}
+        fname = str(payload.get('f') or '').strip()
+        with DATA_LOCK:
+            data = _get_data_locked()
+            enc = norm_encourage(data.get("encourage")) or {}
+            if fname not in (enc.get("imgs") or []):
+                return jsonify({"ok": False, "error": "该图片不存在"}), 200
+            enc["imgs"] = [x for x in enc["imgs"] if x != fname]
+            if enc.get("img") == fname:
+                enc["img"] = enc["imgs"][0] if enc["imgs"] else ""
+            data["encourage"] = enc
+            save_data(data)
+        delete_file(fname)
+        return jsonify({"ok": True, "imgs": [[x, file_url(x)] for x in enc["imgs"]],
+                        "img": enc["img"]})
 
 
     @app.route('/panel/<name>', methods=['POST'])
@@ -769,6 +837,19 @@ def register_views(app):
                     for k in disp:
                         if k in exd:
                             disp[k] = bool(exd.get(k))
+            # 鼓励模式：payload 没带该字段时保留现值；imgs 列表由上传/删除接口管理，
+            # 保存永远不改列表本身（否则一次保存就把整套人物图抹掉了）。
+            # 固定人物 img 只接受"已在列表里"的值，非法回退第一张。
+            _enc_in = payload.get('encourage')
+            enc = norm_encourage(_enc_in) if _enc_in is not None else None
+            _enc_old = norm_encourage(existing.get("encourage")) or {}
+            if enc is None:
+                enc = _enc_old or {"on": False, "name": "", "phrases": [],
+                                   "rand_char": False, "img": "", "imgs": []}
+            else:
+                enc["imgs"] = [x for x in (_enc_old.get("imgs") or []) if file_exists(x)]
+                if enc.get("img") not in enc["imgs"]:
+                    enc["img"] = enc["imgs"][0] if enc["imgs"] else ""
             new_data = {
                 "periods": periods,
                 "items": items,
@@ -779,6 +860,7 @@ def register_views(app):
                 "world_cities": wc,
                 "special_dates": sd,
                 "display": disp,
+                "encourage": enc,
                 "default_land": default_land,
                 "land_modes": _lm,
                 "seq_pos": seq_pos,

@@ -125,6 +125,19 @@
         .celebrate { border: 2px solid #000000; border-radius: 8px; padding: 8px 10px;
                      font-size: 20px; font-weight: 700; color: #000000; text-align: center;
                      margin: 8px 0; }   /* 祝贺条目：黑框居中与普通待办区分（20/700 保证墨水屏实黑） */
+        /* 鼓励模式彩蛋：打勾成功后右下角弹出 [话框▸][人物图]，5 秒自动收起。
+           无动画无声（e-ink 上动画无意义）——出现即完整画面；绝对定位锚到 body
+           （横版时 body 本就是 800×600 画布，四个方向都正确）；节点放文档末尾，
+           自然盖在内容上方（不依赖老 WebKit 的 z-index）。 */
+        .encourage { position: absolute; right: 22px; bottom: 74px; display: flex;
+                     align-items: flex-end; }
+        .enc-bubble { border: 2px solid #000000; border-radius: 10px; background: #ffffff;
+                      padding: 8px 12px; margin-right: 4px; font-size: 18px; font-weight: 700;
+                      color: #000000; max-width: 300px; line-height: 1.4; }
+        .enc-tail { width: 0; height: 0; border-top: 6px solid transparent;
+                    border-bottom: 6px solid transparent; border-left: 8px solid #000000;
+                    align-self: flex-end; margin-bottom: 16px; }   /* 话框小尾巴指向人物（老 WebKit 可靠的 border 三角） */
+        .enc-img { height: 150px; display: block; }
         a.toggle-btn {
             text-decoration: none;
             color: #000000;
@@ -553,6 +566,18 @@
         </div>
     </div>
 
+    {# 鼓励模式彩蛋节点：服务端按「开关开着且人物图已上传」直出（隐藏态），话术已渲染
+       成最终文案；候选人物图按配置下发（人物随机=全部 / 固定=选中的那张，都隐藏），
+       JS 在打勾成功后各随机挑一个显示 5 秒。没开启时整块不下发。 #}
+    {% if data['encourage'] %}
+    <div class="encourage" id="encourageBox" style="display:none">
+        <span class="enc-bubble" id="encText"></span><span class="enc-tail"></span>
+        {%- for u in data['encourage']['imgs'] %}
+        <img class="enc-img" src="{{ u }}" alt="" style="display:none" />
+        {%- endfor %}
+    </div>
+    {% endif %}
+
     {# canvas 保活元素：只有最强体验档（best）真的要跑保活时才渲染，其它档连元素都不下发 #}
     {% if data['power']['canvas_ms'] %}<canvas id="keepAliveCanvas" width="1" height="1" style="display:none;"></canvas>{% endif %}
     <script>
@@ -696,6 +721,38 @@
           if (mt && mt[0]) mt[0].textContent = meta;
         }
       }
+      // 鼓励模式彩蛋：话术由服务端渲染成最终文案、候选人物图由服务端按配置下发
+      // （display 零联网、不读任何存储），这里只做两个独立随机：挑一条话术 + 挑一张
+      // 人物图，显示 5 秒（连点重置计时）；都与上一次不同（连续两次不重复）。
+      // 取消勾选不弹——只夸「完成」。面板关闭/页面整页刷新自然把它带走，无需清理。
+      var ENC_PHRASES = {% if data['encourage'] %}{{ data['encourage']['phrases'] | tojson }}{% else %}[]{% endif %};
+      var _encLast = -1, _encImgLast = -1, _encTimer = null;
+      function _showEncourage() {
+        try {
+          var box = document.getElementById('encourageBox');
+          if (!box || !ENC_PHRASES.length) return;
+          var i = Math.floor(Math.random() * ENC_PHRASES.length);
+          if (ENC_PHRASES.length > 1 && i === _encLast) i = (i + 1) % ENC_PHRASES.length;
+          _encLast = i;
+          document.getElementById('encText').textContent = ENC_PHRASES[i];
+          var imgs = box.getElementsByTagName('img');
+          if (imgs.length) {
+            var k = Math.floor(Math.random() * imgs.length);
+            if (imgs.length > 1 && k === _encImgLast) k = (k + 1) % imgs.length;
+            _encImgLast = k;
+            for (var j = 0; j < imgs.length; j++) {
+              imgs[j].style.display = (j === k) ? 'block' : 'none';
+            }
+          }
+          box.style.display = 'flex';
+          if (_encTimer) { clearTimeout(_encTimer); }
+          _encTimer = setTimeout(function () {
+            box.style.display = 'none'; _encTimer = null;
+          }, 5000);
+        } catch (e) {}
+      }
+      window._showEncourage = _showEncourage;
+
       function toggleItem(a) {
         var id = a.getAttribute('data-id');
         if (!id || !window.XMLHttpRequest) return true;   // 降级：走原来的整页勾选（href 还在）
@@ -720,6 +777,7 @@
             // 万一 meta/checked 缺失，按"当前状态取反"推断（ok=1 就说明已经翻过了）
             if (c === null) c = (a.className.indexOf('done') < 0);
             _paintItem(a, c, m);
+            if (c) { _showEncourage(); }   // 勾上（完成）才弹鼓励彩蛋；取消勾选不弹
           };
           var href = a.getAttribute('href') || '';
           x.open('POST', href + (href.indexOf('?') > -1 ? '&' : '?') + 'js=1&t='
