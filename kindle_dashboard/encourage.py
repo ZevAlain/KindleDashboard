@@ -66,7 +66,10 @@ def norm_encourage(v):
 def render_phrases(enc):
     """话术 -> 最终文案列表（服务端渲染好，display 的 JS 只管随机挑一条）：
     {n} 替换成名字；没配名字时把 {n} 连同其后紧跟的标点一起清掉
-    （"{n}，你太棒了！" -> "你太棒了！"，不留悬空逗号）。"""
+    （"{n}，你太棒了！" -> "你太棒了！"，不留悬空逗号）；
+    emoji 字符直接剔除——弹窗文字走 textContent，没有 emoji 转图管线，
+    Kindle 渲染不了 emoji 字符（constraints 文档既有结论），留着只会出豆腐块。"""
+    from .emoji import EMOJI_SPAN_RE
     name = str(enc.get("name") or "").strip()
     out = []
     for p in (enc.get("phrases") or []):
@@ -77,6 +80,7 @@ def render_phrases(enc):
             s = s.replace("{n}", name)
         else:
             s = re.sub(r"\{n\}\s*[\s，。！？、；：,!?;:]*", "", s)
+        s = EMOJI_SPAN_RE.sub("", s)
         if s:
             out.append(s)
     return out or [u"你太棒了！"]

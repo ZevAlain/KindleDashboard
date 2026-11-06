@@ -744,7 +744,8 @@
               imgs[j].style.display = (j === k) ? 'block' : 'none';
             }
           }
-          box.style.display = 'flex';
+          box.style.display = '';   // 置空=回落到样式表里的 display:flex——与 fitClock 的
+                                    // fontSize='' 同一真机已验证手法，不直接写 'flex'（未验证）
           if (_encTimer) { clearTimeout(_encTimer); }
           _encTimer = setTimeout(function () {
             box.style.display = 'none'; _encTimer = null;
