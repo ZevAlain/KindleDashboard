@@ -20,7 +20,12 @@ AI_WEATHER_CACHE = "ai_weather.json"   # cache/ 下的缓存文件名
 AI_WEATHER_PROMPT_MAX = 60            # prompt 里要求的字数上限（汉字，含标点）
 AI_WEATHER_MAX = 66                   # 服务端硬截断：竖屏 2 行(34字/行)内、横屏 3 行(30字/行)内
 AI_TIMEOUT = 30                       # 第三方接口可能较慢，后台线程等得起
-AI_MAX_TOKENS = 300
+# 推理/思考类模型（GLM-4.5/5.x、DeepSeek-R1、Qwen3 等）的思考过程也计入输出额度：
+# 上限太小会被思考吃光、content 为空（真机翻车：300 时思考模型答不完就截断，
+# 用户实测 GLM-5.3 即此症状）。重度推理模型对简单任务也可能思考上千 token，
+# 4096 足够"思考完 + 一句话"；按实际用量计费，上限只是保险丝，最终上屏文本
+# 仍被 clean_ai_text 硬截 66 字，不会变长。
+AI_MAX_TOKENS = 4096
 
 # 清洗要剔除的字符：markdown 记号 + 常见装饰符号（墨水屏纯文本显示，这些只会变乱码/灰点）
 _STRIP_CHARS_RE = re.compile(u"[*#`~_>|·•]+")
@@ -153,6 +158,7 @@ def fetch_ai_weather(cfg, view, ts=None, user_prompt=None):
         ],
         "max_tokens": AI_MAX_TOKENS,
         "temperature": 0.5,
+        "stream": False,
     }).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Content-Type": "application/json",
@@ -171,14 +177,49 @@ def fetch_ai_weather(cfg, view, ts=None, user_prompt=None):
         raise ValueError(u"接口返回 HTTP %d%s" % (e.code, (u"：%s" % detail) if detail else ""))
     except Exception as e:
         raise ValueError(u"连接失败：%s" % e)
-    try:
-        content = str(((raw.get("choices") or [{}])[0].get("message") or {})
-                      .get("content") or "")
-    except Exception:
-        content = ""
+    content = _extract_content(raw)
     text = clean_ai_text(content)
     if not text:
-        raise ValueError(u"接口响应里没有可用文本（choices[0].message.content 为空）")
-    # 落盘：_w_fetched_at 由调用方（后台线程）补写天气缓存的抓取时间，
-    # 用于"天气更新了才重新生成"；admin 测试路径不落盘（只验证连通）。
+        # 带上关键诊断信息（finish_reason / error 字段 / 响应前 200 字），admin 的
+        # 「测试接口」按钮里就能看到服务到底回了什么，不再盲猜。常见原因：思考类
+        # 模型输出额度被思考吃光（本端已把 max_tokens 提到 2048 兜住）、模型名不对、
+        # 或该服务的响应格式不兼容（把片段发回来即可对症适配）。
+        try:
+            finish = str((((raw.get("choices") or [{}])[0]) or {}).get("finish_reason") or "?")
+        except Exception:
+            finish = "?"
+        err = ""
+        try:
+            if isinstance(raw.get("error"), dict):
+                err = str(raw["error"].get("message") or raw["error"])[:120]
+        except Exception:
+            pass
+        snippet = json.dumps(raw, ensure_ascii=False)[:200]
+        raise ValueError(u"接口 200 但没有回复文本（finish_reason=%s%s）。响应片段：%s"
+                         % (finish, (u"；error：%s" % err) if err else "", snippet))
+    # 落盘与否由调用方决定（后台线程写缓存、admin 测试只回显）。
     return text
+
+
+def _extract_content(raw):
+    """从 OpenAI 兼容响应里取回复文本，兼容各家变体：
+    - choices[0].message.content：标准字段；字符串，或分段数组 [{"type":"text","text":…}]
+    - choices[0].text：老版 completions 格式
+    取不到返回 ""。"""
+    try:
+        ch = ((raw.get("choices") or [])[0]) or {}
+        msg = ch.get("message") or {}
+    except Exception:
+        return ""
+
+    def _txt(v):
+        if isinstance(v, str):
+            return v
+        if isinstance(v, list):
+            return " ".join(str(p.get("text") or "") for p in v if isinstance(p, dict))
+        return ""
+
+    t = _txt(msg.get("content"))
+    if t.strip():
+        return t
+    return _txt(ch.get("text"))
