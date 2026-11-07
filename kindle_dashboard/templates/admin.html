@@ -247,7 +247,7 @@
             <section class="card">
                 <h3><span class="dot"></span>鼓励模式（打勾彩蛋）<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_enc', this)" title="设置说明">?</button></h3>
                 <p class="sub">Kindle 上勾选完成待办后，右下角弹出人物 + 夸奖话术，5 秒自动收起。</p>
-                <div class="help-box" id="h_enc" style="display:none;">开关开着<b>且至少有一张启用的人物图</b>才会弹。话术每行一条，打勾时随机一条、不与上一条重复；<b>{n}</b> 替换成名字（名字留空自动去掉 {n} 和紧跟的标点）。<b>人物随机</b>：开=每次从「启用」的人物里随机一个；关=固定用「固定✓」那张。<b>图片管理全部即时生效</b>（不用点保存）：上传（≤8 张）、<b>停用</b>（临时移出随机池，文件保留、随时启用回来——比删除温和）、点缩略图选固定、<b>下载</b>（单张原图）/打包下载全部（zip 备份，换机器时重传即可恢复）、×彻底删除（文件也删，不可恢复）。开关/名字/话术/人物随机这几个选项改动后需点「保存」。取消勾选不弹，只夸「完成」。</div>
+                <div class="help-box" id="h_enc" style="display:none;">开关开着<b>且至少有一张启用的人物图</b>才会弹。话术每行一条，打勾时随机一条、不与上一条重复；<b>{n}</b> 替换成名字（名字留空自动去掉 {n} 和紧跟的标点）。<b>人物随机</b>：开=每次从「启用」的人物里随机一个；关=固定用「固定✓」那张。<b>两级上限</b>：启用（随机池）最多 8 张——太多循环不过来；收藏库（含停用）最多 24 张，所以可以多传一些轮着启用。<b>图片管理全部即时生效</b>（不用点保存）：上传、<b>停用</b>（移出随机池但文件保留，腾出启用名额）、点缩略图选固定、<b>下载</b>（单张/打包 zip 备份，换机器时重传即可恢复）、×彻底删除。开关/名字/话术/人物随机这几个选项改动后需点「保存」。取消勾选不弹，只夸「完成」。</div>
                 <div class="row2">
                     <div class="field">
                         <label>开关</label>
@@ -1045,7 +1045,7 @@
         box.innerHTML = html;
         var onN = 0;
         for (var k = 0; k < ENC_THUMBS.length; k++) { if (ENC_THUMBS[k].on) { onN++; } }
-        if (msg) { msg.textContent = '共 ' + ENC_THUMBS.length + '/8 张（启用 ' + onN + ' 张）；上传/删除/停用/点选固定均即时生效，不用点「保存」。'; }
+        if (msg) { msg.textContent = '收藏 ' + ENC_THUMBS.length + '/24 张，启用（随机池）' + onN + '/8 张；上传/删除/停用/点选固定均即时生效，不用点「保存」。'; }
       }
       function encPick(f) {
         fetch('/admin/encourage_img_pick', {
@@ -1105,9 +1105,13 @@
             if (j && j.ok) {
               msg.style.color = '#16a34a';
               msg.textContent = '已上传并立即生效（开关/话术/固定人物记得点「保存」）。';
-              ENC_THUMBS.push({ f: j.f, url: j.url, on: true });
-              if (!ENC_SEL) { ENC_SEL = j.f; }
+              ENC_THUMBS.push({ f: j.f, url: j.url, on: !j.auto_off });
+              if (!ENC_SEL && !j.auto_off) { ENC_SEL = j.f; }
               renderEncImgs();
+              if (j.auto_off) {   // 随机池满 8：入库但停用（收藏库语义）
+                msg.style.color = '#d97706';
+                msg.textContent = '已上传；启用的已满 8 张，本张自动停用——想让它上场，先停用一张再点「启用」。';
+              }
               if (j.warn) {   // 深色背景检测：不阻断，但明确告知墨水屏上会是黑底块
                 msg.style.color = '#d97706';
                 msg.textContent = '已上传，但注意：' + j.warn + '（当前这张可以先删掉）';

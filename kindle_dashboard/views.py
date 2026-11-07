@@ -16,9 +16,9 @@ from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_lock
                    gen_client_id, load_data, normalize, save_data,
                    valid_item_freq, valid_item_time)
 from .emoji import convert_emoji_to_html
-from .encourage import (ENC_IMG_MAX_UPLOAD, ENC_MAX_IMGS, delete_file, enc_thumbs,
-                        file_exists, file_path, file_url, img_urls, norm_encourage,
-                        render_phrases, save_upload)
+from .encourage import (ENC_IMG_MAX_UPLOAD, ENC_MAX_IMGS, ENC_MAX_ON, delete_file,
+                        enc_thumbs, file_exists, file_path, file_url, img_urls,
+                        norm_encourage, render_phrases, save_upload)
 from .geocode import geocode_search
 from .holidays import get_holiday_events, nearest_holiday
 from .lunardate import (_LUNAR_DAY_CN, _LUNAR_MONTH_CN, huangli_day,
@@ -597,14 +597,17 @@ def register_views(app):
             imgs = [e for e in (enc.get("imgs") or []) if file_exists(e["f"])]  # 剔除磁盘上已消失的
             if len(imgs) >= ENC_MAX_IMGS:
                 delete_file(fname)
-                return jsonify({"ok": False, "error": "最多 %d 张人物图，先删除或停用一些再上传" % ENC_MAX_IMGS}), 200
-            imgs.append({"f": fname, "on": True})
-            if not enc.get("img"):
+                return jsonify({"ok": False, "error":
+                                u"收藏库已达 %d 张（含停用）：删除一些不需要的再传" % ENC_MAX_IMGS}), 200
+            # 随机池满 8 张时上传仍成功——新图自动停用入库（收藏库语义），想启用先停一张
+            auto_off = len([e for e in imgs if e["on"]]) >= ENC_MAX_ON
+            imgs.append({"f": fname, "on": not auto_off})
+            if not enc.get("img") and not auto_off:
                 enc["img"] = fname        # 第一张自动成为固定人物（随机开着时该值闲置）
             enc["imgs"] = imgs
             data["encourage"] = enc
             save_data(data)
-        return jsonify({"ok": True, "f": fname, "url": file_url(fname),
+        return jsonify({"ok": True, "f": fname, "url": file_url(fname), "auto_off": auto_off,
                         "warn": (u"这张图自带深色背景，墨水屏上会显示成黑底块，建议换白底或透明底版本重传"
                                  if dark_bg else "")})
 
@@ -651,6 +654,11 @@ def register_views(app):
             hit = False
             for e in (enc.get("imgs") or []):
                 if e["f"] == fname:
+                    if turn_on and e["on"] is False:
+                        on_n = len([x for x in enc["imgs"] if x["on"]])
+                        if on_n >= ENC_MAX_ON:
+                            return jsonify({"ok": False, "error":
+                                            u"启用的已有 %d 张（随机池上限）：先停用别的再启用这张" % ENC_MAX_ON}), 200
                     e["on"] = turn_on
                     hit = True
                     break

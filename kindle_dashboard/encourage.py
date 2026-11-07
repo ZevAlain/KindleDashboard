@@ -22,7 +22,11 @@ from .config import DATA_DIR
 ENC_DIR = os.path.join(DATA_DIR, "static", "encourage")
 ENC_IMG_MAX_UPLOAD = 5 * 1024 * 1024     # 上传原图上限 5MB
 ENC_IMG_HEIGHT = 240                     # 上屏高度上限（像素）：弹窗尺寸 & Kindle 内存友好
-ENC_MAX_IMGS = 8                         # 人物图上限（候选全部下发到页面，8 张封顶）
+# 两级上限：收藏库 vs 随机池。启用的（随机池）最多 8 张——太多循环不过来；
+# 停用的不占随机池、只占收藏库，所以"传更多、轮着启用"是支持的；收藏库 24 张
+# 封顶是磁盘与管理 sanity（防无限增长），不是功能限制。
+ENC_MAX_ON = 8
+ENC_MAX_IMGS = 24
 DEFAULT_PHRASES = [u"{n}，你太棒了！", u"干得漂亮，{n}！", u"{n} 真是太厉害了！"]
 # 只认本模块生成的命名（char_<时间戳>.png 及一期遗留的 char.png），杜绝路径注入
 _IMG_NAME_RE = re.compile(r"^char[\w-]*\.png$", re.IGNORECASE)
@@ -72,6 +76,13 @@ def norm_encourage(v):
     if img and img not in seen:
         imgs.append({"f": img, "on": True})   # 手改/异常数据兜底：img 并进候选列表
     imgs = imgs[:ENC_MAX_IMGS]
+    # 启用数超随机池上限（手改数据等）：按顺序保留前 ENC_MAX_ON 张启用，其余自动停用
+    _on_seen = 0
+    for e in imgs:
+        if e["on"]:
+            _on_seen += 1
+            if _on_seen > ENC_MAX_ON:
+                e["on"] = False
     on_files = [e["f"] for e in imgs if e["on"]]
     if img and img not in on_files:
         img = on_files[0] if on_files else ""   # 固定人物必须启用
