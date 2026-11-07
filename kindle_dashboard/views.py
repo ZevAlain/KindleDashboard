@@ -16,8 +16,9 @@ from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_lock
                    gen_client_id, load_data, normalize, save_data,
                    valid_item_freq, valid_item_time)
 from .emoji import convert_emoji_to_html
-from .encourage import (ENC_IMG_MAX_UPLOAD, ENC_MAX_IMGS, delete_file, file_exists,
-                        file_url, img_urls, norm_encourage, render_phrases, save_upload)
+from .encourage import (ENC_IMG_MAX_UPLOAD, ENC_MAX_IMGS, delete_file, enc_thumbs,
+                        file_exists, file_path, file_url, img_urls, norm_encourage,
+                        render_phrases, save_upload)
 from .geocode import geocode_search
 from .holidays import get_holiday_events, nearest_holiday
 from .lunardate import (_LUNAR_DAY_CN, _LUNAR_MONTH_CN, huangli_day,
@@ -462,12 +463,16 @@ def register_views(app):
     @login_required
     def admin():
         data = get_data()
-        # 人物图缩略图墙数据：[(文件名, 带版本号的URL)]（磁盘上已消失的自动剔除）
+        # 人物图缩略图墙数据 [{f,url,on}]（含停用的）+ 话术预拼文本：
+        # 换行必须在路由侧用真换行符拼好——模板表达式里传 "&#10;" 会被 Jinja
+        # 当字面字符串输出（真机翻车：刷新后台后多行话术连成一行、显示 &#10;）
         enc = norm_encourage(data.get("encourage")) or {}
-        thumbs = [[f, file_url(f)] for f in (enc.get("imgs") or []) if file_exists(f)]
+        enc_phrases_text = "\n".join(enc.get("phrases") or [])
         # 版本号在此显示（不侵占 display 空间）：单一来源 config.APP_VERSION（CI 注入）
         return render_template('admin.html', data=data, data_json=data,
-                               app_version=APP_VERSION, enc_thumbs=thumbs)
+                               app_version=APP_VERSION, enc_thumbs=enc_thumbs(enc),
+                               enc_phrases_text=enc_phrases_text,
+                               enc_img=enc.get("img") or "")
 
 
     @app.route('/admin/export')
@@ -589,11 +594,11 @@ def register_views(app):
         with DATA_LOCK:
             data = _get_data_locked()
             enc = norm_encourage(data.get("encourage")) or {}
-            imgs = [x for x in (enc.get("imgs") or []) if file_exists(x)]  # 顺带剔除磁盘上已消失的
+            imgs = [e for e in (enc.get("imgs") or []) if file_exists(e["f"])]  # 剔除磁盘上已消失的
             if len(imgs) >= ENC_MAX_IMGS:
                 delete_file(fname)
-                return jsonify({"ok": False, "error": "最多 %d 张人物图，先删除一些再上传" % ENC_MAX_IMGS}), 200
-            imgs.append(fname)
+                return jsonify({"ok": False, "error": "最多 %d 张人物图，先删除或停用一些再上传" % ENC_MAX_IMGS}), 200
+            imgs.append({"f": fname, "on": True})
             if not enc.get("img"):
                 enc["img"] = fname        # 第一张自动成为固定人物（随机开着时该值闲置）
             enc["imgs"] = imgs
@@ -607,23 +612,96 @@ def register_views(app):
     @app.route('/admin/encourage_img_del', methods=['POST'])
     @login_required
     def admin_encourage_img_del():
-        """删除一张人物图：data.json 列表与磁盘文件一起清理；删的是固定人物时
-        自动改选剩余第一张；最后一张也删掉 = 关闭弹窗资格（开关再开也没图不弹）。"""
+        """删除一张人物图（真删：记录+磁盘文件）；删的是固定人物时自动改选剩余
+        第一张启用的。想"临时移出随机池"请用停用（encourage_img_toggle），文件保留。"""
         payload = request.get_json(silent=True) or {}
         fname = str(payload.get('f') or '').strip()
         with DATA_LOCK:
             data = _get_data_locked()
             enc = norm_encourage(data.get("encourage")) or {}
-            if fname not in (enc.get("imgs") or []):
+            if not any(e["f"] == fname for e in (enc.get("imgs") or [])):
                 return jsonify({"ok": False, "error": "该图片不存在"}), 200
-            enc["imgs"] = [x for x in enc["imgs"] if x != fname]
-            if enc.get("img") == fname:
-                enc["img"] = enc["imgs"][0] if enc["imgs"] else ""
+            enc["imgs"] = [e for e in enc["imgs"] if e["f"] != fname]
+            on_files = [e["f"] for e in enc["imgs"] if e["on"]]
+            if enc.get("img") not in on_files:
+                enc["img"] = on_files[0] if on_files else ""
             data["encourage"] = enc
             save_data(data)
         delete_file(fname)
-        return jsonify({"ok": True, "imgs": [[x, file_url(x)] for x in enc["imgs"]],
+        return jsonify({"ok": True, "thumbs": _enc_thumbs_payload(enc),
                         "img": enc["img"]})
+
+    def _enc_thumbs_payload(enc):
+        from .encourage import enc_thumbs
+        return enc_thumbs(enc)
+
+
+    @app.route('/admin/encourage_img_toggle', methods=['POST'])
+    @login_required
+    def admin_encourage_img_toggle():
+        """停用/启用一张人物图（即时生效）：停用 = 移出随机池、也不能当固定人物，
+        但文件与记录都保留，随时启用回来——比删除温和，解决"删了下次还得重传"。
+        停用的是固定人物时自动改选第一张启用的；全部停用 = 看板暂停弹窗（不报错）。"""
+        payload = request.get_json(silent=True) or {}
+        fname = str(payload.get('f') or '').strip()
+        turn_on = bool(payload.get('on'))
+        with DATA_LOCK:
+            data = _get_data_locked()
+            enc = norm_encourage(data.get("encourage")) or {}
+            hit = False
+            for e in (enc.get("imgs") or []):
+                if e["f"] == fname:
+                    e["on"] = turn_on
+                    hit = True
+                    break
+            if not hit:
+                return jsonify({"ok": False, "error": "该图片不存在"}), 200
+            on_files = [x["f"] for x in enc["imgs"] if x["on"]]
+            if enc.get("img") not in on_files:
+                enc["img"] = on_files[0] if on_files else ""
+            data["encourage"] = enc
+            save_data(data)
+        return jsonify({"ok": True, "thumbs": _enc_thumbs_payload(enc),
+                        "img": enc["img"]})
+
+
+    @app.route('/admin/encourage_img_pick', methods=['POST'])
+    @login_required
+    def admin_encourage_img_pick():
+        """点选固定人物（即时生效，不用点保存——与上传/删除/停用同一即时语义）：
+        点击缩略图即调用；只在「人物随机」关闭时实际决定弹窗出谁。"""
+        payload = request.get_json(silent=True) or {}
+        fname = str(payload.get('f') or '').strip()
+        with DATA_LOCK:
+            data = _get_data_locked()
+            enc = norm_encourage(data.get("encourage")) or {}
+            if not any(e["f"] == fname and e["on"] for e in (enc.get("imgs") or [])):
+                return jsonify({"ok": False, "error": "该图片不存在或已停用"}), 200
+            enc["img"] = fname
+            data["encourage"] = enc
+            save_data(data)
+        return jsonify({"ok": True, "img": fname})
+
+
+    @app.route('/admin/encourage_zip')
+    @login_required
+    def admin_encourage_zip():
+        """打包下载全部人物图（zip）：备份/迁移用——导出的 data.json 备份并不包含
+        图片文件，换机器时把 zip 里的人物在后台重新传一遍即可完整恢复。"""
+        import io
+        import zipfile
+        enc = norm_encourage(get_data().get("encourage")) or {}
+        files = [e["f"] for e in (enc.get("imgs") or []) if file_exists(e["f"])]
+        if not files:
+            return jsonify({"ok": False, "error": "还没有人物图可打包"}), 404
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in files:
+                z.write(file_path(f), f)
+        resp = make_response(buf.getvalue())
+        resp.headers["Content-Type"] = "application/zip"
+        resp.headers["Content-Disposition"] = "attachment; filename=\"encourage-chars.zip\""
+        return resp
 
 
     @app.route('/panel/<name>', methods=['POST'])
@@ -839,9 +917,9 @@ def register_views(app):
                     for k in disp:
                         if k in exd:
                             disp[k] = bool(exd.get(k))
-            # 鼓励模式：payload 没带该字段时保留现值；imgs 列表由上传/删除接口管理，
-            # 保存永远不改列表本身（否则一次保存就把整套人物图抹掉了）。
-            # 固定人物 img 只接受"已在列表里"的值，非法回退第一张。
+            # 鼓励模式：payload 没带该字段时保留现值；imgs 列表与固定人物选择由
+            # 上传/删除/停用/点选接口管理（都是即时生效），保存只管开关/名字/话术/
+            # 人物随机——这里把 imgs 与 img 从现值原样带回，绝不因保存而丢图。
             _enc_in = payload.get('encourage')
             enc = norm_encourage(_enc_in) if _enc_in is not None else None
             _enc_old = norm_encourage(existing.get("encourage")) or {}
@@ -849,9 +927,12 @@ def register_views(app):
                 enc = _enc_old or {"on": False, "name": "", "phrases": [],
                                    "rand_char": False, "img": "", "imgs": []}
             else:
-                enc["imgs"] = [x for x in (_enc_old.get("imgs") or []) if file_exists(x)]
-                if enc.get("img") not in enc["imgs"]:
-                    enc["img"] = enc["imgs"][0] if enc["imgs"] else ""
+                enc["imgs"] = [e for e in (_enc_old.get("imgs") or []) if file_exists(e["f"])]
+                _on = [e["f"] for e in enc["imgs"] if e["on"]]
+                if _enc_old.get("img") in _on:
+                    enc["img"] = _enc_old["img"]
+                else:
+                    enc["img"] = _on[0] if _on else ""
             new_data = {
                 "periods": periods,
                 "items": items,

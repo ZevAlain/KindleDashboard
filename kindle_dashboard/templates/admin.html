@@ -126,6 +126,15 @@
         .enc-thumb.sel::after { content:'固定✓'; position:absolute; left:6px; top:6px; font-size:11px;
                                 font-weight:700; background:var(--accent); color:#fff;
                                 padding:1px 7px; border-radius:9px; }
+        .enc-thumb.off { border-style:dashed; background:#f6f7f9; }
+        .enc-thumb.off img { filter:grayscale(1); opacity:.38; }
+        .enc-off-tag { position:absolute; left:6px; bottom:6px; font-size:11px; font-weight:700;
+                       background:var(--muted); color:#fff; padding:1px 7px; border-radius:9px; }
+        .enc-acts { display:flex; justify-content:center; gap:4px; padding-top:5px;
+                    font-size:12px; font-weight:600; border-top:1px dashed var(--line); margin-top:5px; }
+        .enc-acts a { color:var(--accent); cursor:pointer; text-decoration:none; }
+        .enc-acts a:hover { text-decoration:underline; }
+        .enc-dot { color:var(--muted); }
         .enc-x { position:absolute; right:-8px; top:-8px; width:22px; height:22px; line-height:20px;
                  text-align:center; background:var(--danger); color:#fff; border-radius:50%;
                  font-weight:700; font-size:13px; cursor:pointer; border:2px solid #fff; }
@@ -238,7 +247,7 @@
             <section class="card">
                 <h3><span class="dot"></span>鼓励模式（打勾彩蛋）<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_enc', this)" title="设置说明">?</button></h3>
                 <p class="sub">Kindle 上勾选完成待办后，右下角弹出人物 + 夸奖话术，5 秒自动收起。</p>
-                <div class="help-box" id="h_enc" style="display:none;">开关开着<b>且已上传人物图</b>才会弹（少一样都不弹，看板其余功能不受影响）。话术支持多条（每行一条），每次打勾随机一条、不与上一条重复；<b>{n}</b> 会替换成上面填的名字（名字留空则自动去掉 {n} 和紧跟的标点）。<b>人物随机</b>：开启后每次打勾从已上传的人物里随机出现一个（与话术随机互不影响）；关闭则固定用缩略图里「固定✓」标记的那张（点击缩略图切换）。人物图最多 8 张；上传/删除<b>立即生效</b>（不用点保存），选固定人物和开关需要点「保存」。取消勾选不弹，只夸「完成」。</div>
+                <div class="help-box" id="h_enc" style="display:none;">开关开着<b>且至少有一张启用的人物图</b>才会弹。话术每行一条，打勾时随机一条、不与上一条重复；<b>{n}</b> 替换成名字（名字留空自动去掉 {n} 和紧跟的标点）。<b>人物随机</b>：开=每次从「启用」的人物里随机一个；关=固定用「固定✓」那张。<b>图片管理全部即时生效</b>（不用点保存）：上传（≤8 张）、<b>停用</b>（临时移出随机池，文件保留、随时启用回来——比删除温和）、点缩略图选固定、<b>下载</b>（单张原图）/打包下载全部（zip 备份，换机器时重传即可恢复）、×彻底删除（文件也删，不可恢复）。开关/名字/话术/人物随机这几个选项改动后需点「保存」。取消勾选不弹，只夸「完成」。</div>
                 <div class="row2">
                     <div class="field">
                         <label>开关</label>
@@ -256,7 +265,7 @@
                     </div>
                     <div class="field">
                         <label>夸奖话术（每行一条，随机出现）</label>
-                        <textarea id="enc_phrases" rows="4" style="width:100%; padding:10px 12px; font-size:14.5px; border:1px solid #d5dae3; border-radius:9px; background:#fff; color:var(--txt); font-family:inherit; resize:vertical;" placeholder="{n}，你太棒了！&#10;干得漂亮，{n}！">{{ ((data.get('encourage') or {}).get('phrases') or ['{n}，你太棒了！']) | join('&#10;') }}</textarea>
+                        <textarea id="enc_phrases" rows="4" style="width:100%; padding:10px 12px; font-size:14.5px; border:1px solid #d5dae3; border-radius:9px; background:#fff; color:var(--txt); font-family:inherit; resize:vertical;" placeholder="{n}，你太棒了！&#10;干得漂亮，{n}！">{{ enc_phrases_text }}</textarea>
                         <div class="muted" id="enc_preview" style="margin-top:6px;"></div>
                     </div>
                 </div>
@@ -268,6 +277,7 @@
                         <label class="save-btn" style="padding:9px 18px; font-size:14px; cursor:pointer; position:relative; overflow:hidden;">上传人物图
                             <input type="file" accept="image/png,image/jpeg" style="position:absolute; left:-9999px;" onchange="uploadEncImg(this)">
                         </label>
+                        <a href="/admin/encourage_zip" class="save-btn" style="padding:9px 18px; font-size:14px; color:var(--accent); background:var(--accent-soft); text-decoration:none; border:1px solid #dbe6ff;">打包下载全部（备份）</a>
                         <div class="muted" id="enc_upload_msg" style="max-width:460px;">准备什么样的图：PNG / JPG，≤5MB；建议<b>人物完整居中、背景干净</b>（墨水屏黑白显示，深色背景会糊成一团）；透明背景最理想，上传后自动合成白底、转灰度并缩到高度 ≤240px，无需自己处理。</div>
                     </div>
                 </div>
@@ -471,9 +481,9 @@
 
     <script>
       var state = {{ data_json | tojson }};
-      // 人物图缩略图墙数据：[[文件名, 带版本号URL], ...]（上传/删除后由 JS 本地维护）
+      // 人物图缩略图墙数据：[{f, url, on}]（上传/删除/停用后由接口返回最新值）
       var ENC_THUMBS = {{ enc_thumbs | tojson }};
-      var ENC_SEL = {{ ((data.get('encourage') or {}).get('img') or '') | tojson }};
+      var ENC_SEL = {{ enc_img | tojson }};
 
       function esc(s) {
         return (s == null ? '' : String(s))
@@ -1017,26 +1027,54 @@
         }
         var html = '';
         for (var i = 0; i < ENC_THUMBS.length; i++) {
-          var f = ENC_THUMBS[i][0], u = ENC_THUMBS[i][1];
-          html += '<div class="enc-thumb' + (f === ENC_SEL ? ' sel' : '') + '" data-f="' + f + '"'
-                + ' onclick="encPick(this)" title="点选为固定人物（人物随机关闭时使用）">'
-                + '<img src="' + u + '" alt="">'
-                + '<span class="enc-x" onclick="event.cancelBubble=true;encDel(\'' + f + '\')" title="删除这张">×</span>'
+          var t = ENC_THUMBS[i];
+          var off = !t.on;
+          html += '<div class="enc-thumb' + (t.f === ENC_SEL ? ' sel' : '') + (off ? ' off' : '') + '"'
+                + ' onclick="encPick(\'' + t.f + '\')"'
+                + (off ? ' title="已停用：不参与随机；点击缩略图其他区域也无操作，先启用"' : ' title="点选为固定人物（人物随机关闭时使用），即时生效"') + '>'
+                + '<img src="' + t.url + '" alt="">'
+                + '<span class="enc-x" onclick="event.cancelBubble=true;encDel(\'' + t.f + '\')" title="彻底删除（文件也删）">×</span>'
+                + (off ? '<span class="enc-off-tag">已停用</span>' : '')
+                + '<div class="enc-acts" onclick="event.cancelBubble=true">'
+                + '<a href="' + t.url + '" download title="下载原图备份">下载</a>'
+                + '<span class="enc-dot">·</span>'
+                + '<a onclick="encToggle(\'' + t.f + '\',' + (off ? 'true' : 'false') + ')" title="' + (off ? '重新加入随机池' : '临时移出随机池，文件保留') + '">' + (off ? '启用' : '停用') + '</a>'
+                + '</div>'
                 + '</div>';
         }
         box.innerHTML = html;
-        if (msg) { msg.textContent = '共 ' + ENC_THUMBS.length + '/8 张；上传/删除立即生效，选固定人物需点「保存」。'; }
+        var onN = 0;
+        for (var k = 0; k < ENC_THUMBS.length; k++) { if (ENC_THUMBS[k].on) { onN++; } }
+        if (msg) { msg.textContent = '共 ' + ENC_THUMBS.length + '/8 张（启用 ' + onN + ' 张）；上传/删除/停用/点选固定均即时生效，不用点「保存」。'; }
       }
-      function encPick(el) {
-        ENC_SEL = el.getAttribute('data-f') || '';
-        var all = document.querySelectorAll('#encImgs .enc-thumb');
-        for (var i = 0; i < all.length; i++) {
-          all[i].className = 'enc-thumb' + (all[i].getAttribute('data-f') === ENC_SEL ? ' sel' : '');
-        }
+      function encPick(f) {
+        fetch('/admin/encourage_img_pick', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ f: f })
+        }).then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j && j.ok) { ENC_SEL = j.img; renderEncImgs(); }
+          })
+          .catch(function () {});
+      }
+      function encToggle(f, turnOn) {
+        fetch('/admin/encourage_img_toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ f: f, on: !!turnOn })
+        }).then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j && j.ok) {
+              ENC_THUMBS = j.thumbs || [];
+              ENC_SEL = j.img || '';
+              renderEncImgs();
+            }
+          })
+          .catch(function () {});
       }
       function encDel(f) {
-        if (!window.confirm('删除这张人物图？')) return;
-        var msg = document.getElementById('enc_upload_msg');
+        if (!window.confirm('彻底删除这张人物图？文件也会删掉，无法恢复（只是想临时移出随机池请用「停用」）。')) return;
         fetch('/admin/encourage_img_del', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1044,11 +1082,12 @@
         }).then(function (r) { return r.json(); })
           .then(function (j) {
             if (!j || !j.ok) { throw new Error((j && j.error) || '未知错误'); }
-            ENC_THUMBS = j.imgs || [];
+            ENC_THUMBS = j.thumbs || [];
             ENC_SEL = j.img || '';
             renderEncImgs();
           })
           .catch(function (e) {
+            var msg = document.getElementById('enc_upload_msg');
             if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = '删除失败：' + (e.message || e); }
           });
       }
@@ -1066,7 +1105,7 @@
             if (j && j.ok) {
               msg.style.color = '#16a34a';
               msg.textContent = '已上传并立即生效（开关/话术/固定人物记得点「保存」）。';
-              ENC_THUMBS.push([j.f, j.url]);
+              ENC_THUMBS.push({ f: j.f, url: j.url, on: true });
               if (!ENC_SEL) { ENC_SEL = j.f; }
               renderEncImgs();
               if (j.warn) {   // 深色背景检测：不阻断，但明确告知墨水屏上会是黑底块
@@ -1355,7 +1394,6 @@
           encourage: {
             on: !!(document.getElementById('enc_on') || {}).checked,
             rand_char: !!(document.getElementById('enc_rand') || {}).checked,
-            img: ENC_SEL,
             name: ((document.getElementById('enc_name') || {}).value || '').trim(),
             phrases: (((document.getElementById('enc_phrases') || {}).value) || '')
               .split('\n').map(function (s) { return s.trim(); })

@@ -28,10 +28,26 @@ DEFAULT_PHRASES = [u"{n}，你太棒了！", u"干得漂亮，{n}！", u"{n} 真
 _IMG_NAME_RE = re.compile(r"^char[\w-]*\.png$", re.IGNORECASE)
 
 
+def _norm_img_entry(v):
+    """单张人物图条目规范化：兼容新结构 {f, on} 与旧纯文件名字符串（迁移）。
+    文件名白名单校验（basename + 本模块命名规则），非法返回 None。"""
+    if isinstance(v, dict):
+        f = os.path.basename(str(v.get("f") or "").strip())
+        if _IMG_NAME_RE.match(f):
+            return {"f": f, "on": bool(v.get("on", True))}
+        return None
+    f = os.path.basename(str(v or "").strip())
+    if _IMG_NAME_RE.match(f):
+        return {"f": f, "on": True}
+    return None
+
+
 def norm_encourage(v):
     """鼓励模式配置规范化：{on, name, phrases[], rand_char, img, imgs[]}。
+    imgs = [{"f": 文件名, "on": 是否参与随机}]（旧版纯字符串列表自动迁移为 on=True）。
     非 dict 输入返回 None（调用方回退现值，与 _norm_city_list 同一约定）。
-    imgs/img 文件名一律白名单校验；img 必须落在 imgs 内，不在（或没选）回退第一张。"""
+    固定人物 img 必须是「已启用」的图：不是则回退第一张启用的；全部停用 = img 空
+    （display 不弹，admin 里看着是"暂停"状态，随时启用回来）。"""
     if not isinstance(v, dict):
         return None
     on = bool(v.get("on"))
@@ -44,21 +60,23 @@ def norm_encourage(v):
     if not phrases:
         phrases = list(DEFAULT_PHRASES)
     rand_char = bool(v.get("rand_char"))
-    imgs = []
-    for f in (v.get("imgs") or []):
-        f = os.path.basename(str(f or "").strip())
-        if _IMG_NAME_RE.match(f) and f not in imgs:
-            imgs.append(f)
+    imgs, seen = [], set()
+    for x in (v.get("imgs") or []):
+        e = _norm_img_entry(x)
+        if e and e["f"] not in seen:
+            seen.add(e["f"])
+            imgs.append(e)
     img = os.path.basename(str(v.get("img") or "").strip())
     if not _IMG_NAME_RE.match(img):
         img = ""
-    if img and img not in imgs:
-        imgs.append(img)            # 手改/异常数据兜底：img 并进候选列表，别让它凭空丢
+    if img and img not in seen:
+        imgs.append({"f": img, "on": True})   # 手改/异常数据兜底：img 并进候选列表
     imgs = imgs[:ENC_MAX_IMGS]
-    if not img and imgs:
-        img = imgs[0]               # 没选固定人物 = 用第一张
-    if imgs and img not in imgs:
-        img = imgs[0]
+    on_files = [e["f"] for e in imgs if e["on"]]
+    if img and img not in on_files:
+        img = on_files[0] if on_files else ""   # 固定人物必须启用
+    if not img and on_files:
+        img = on_files[0]                       # 没选 = 第一张启用的
     return {"on": on, "name": name, "phrases": phrases[:20],
             "rand_char": rand_char, "img": img, "imgs": imgs}
 
@@ -109,16 +127,26 @@ def file_url(fname):
 
 
 def img_urls(enc):
-    """按配置返回 display 要下发的图 URL 列表：
-    人物随机开 = 全部候选图；关 = 只下发固定的那张。磁盘上已消失的自动剔除。"""
-    urls = [file_url(f) for f in (enc.get("imgs") or [])]
+    """按配置返回 display 要下发的图 URL 列表（只含**已启用**的）：
+    人物随机开 = 全部启用图；关 = 固定的那张（磁盘上已消失的自动剔除）。"""
+    on_files = [e["f"] for e in (enc.get("imgs") or []) if e.get("on", True)]
+    urls = [file_url(f) for f in on_files]
     urls = [u for u in urls if u]
     if not enc.get("rand_char"):
-        fixed = file_url(enc.get("img"))
-        if fixed:
-            return [fixed]
-        return urls[:1]
+        fixed = file_url(enc.get("img")) or (urls[0] if urls else "")
+        return [fixed] if fixed else []
     return urls
+
+
+def enc_thumbs(enc):
+    """admin 缩略图墙数据：[{f, url, on}]（含停用的——admin 要能看见并重新启用），
+    磁盘上已消失的剔除。"""
+    out = []
+    for e in (enc.get("imgs") or []):
+        u = file_url(e.get("f"))
+        if u:
+            out.append({"f": e["f"], "url": u, "on": bool(e.get("on", True))})
+    return out
 
 
 def new_filename():

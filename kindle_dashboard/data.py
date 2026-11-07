@@ -172,11 +172,12 @@ def normalize(data):
     else:
         for k in DEFAULT_DISPLAY:
             disp.setdefault(k, DEFAULT_DISPLAY[k])
-    # 鼓励模式（打勾彩蛋）：旧数据没有该键补默认；图片字段由上传接口管理
+    # 鼓励模式（打勾彩蛋）：旧数据没有该键补默认；图片列表/固定选择由上传等接口管理
     from .encourage import norm_encourage
     enc = norm_encourage(data.get("encourage"))
     if enc is None:
-        enc = {"on": False, "name": "", "phrases": list(DEFAULT_PHRASES), "img": ""}
+        enc = {"on": False, "name": "", "phrases": list(DEFAULT_PHRASES),
+               "rand_char": False, "img": "", "imgs": []}
     data["encourage"] = enc
     return data
 DEFAULT_DISPLAY = {"show_weather": True, "show_motto": True, "show_lunar": True, "shuffle_items": False, "show_seq": False}
