@@ -6,6 +6,7 @@ data.json.tmp
 data.json.corrupt
 cache/
 static/emoji/
+static/encourage/
 
 # ---- Python ----
 __pycache__/

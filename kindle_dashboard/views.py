@@ -18,7 +18,7 @@ from .data import (DATA_LOCK, DEFAULT_CITY_LIST, DEFAULT_DISPLAY, _get_data_lock
 from .emoji import convert_emoji_to_html
 from .encourage import (ENC_IMG_MAX_UPLOAD, ENC_MAX_IMGS, ENC_MAX_ON, delete_file,
                         enc_thumbs, file_exists, file_path, file_url, img_urls,
-                        norm_encourage, render_phrases, save_upload)
+                        norm_encourage, pick_rand_char, render_phrases, save_upload)
 from .geocode import geocode_search
 from .holidays import get_holiday_events, nearest_holiday
 from .lunardate import (_LUNAR_DAY_CN, _LUNAR_MONTH_CN, huangli_day,
@@ -472,6 +472,7 @@ def register_views(app):
         return render_template('admin.html', data=data, data_json=data,
                                app_version=APP_VERSION, enc_thumbs=enc_thumbs(enc),
                                enc_phrases_text=enc_phrases_text,
+                               enc_max_on=ENC_MAX_ON, enc_max_imgs=ENC_MAX_IMGS,
                                enc_img=enc.get("img") or "")
 
 
@@ -515,10 +516,21 @@ def register_views(app):
         # 读-改-写全程持锁，防与并发整页刷新/保存互相丢写
         with DATA_LOCK:
             data = _get_data_locked()
-            checked, meta, found = False, "", False
+            checked, meta, found, enc_url = False, "", False, ""
             for it in data['items']:
                 if it['id'] == item_id:
                     it['checked'] = not it['checked']
+                    # 勾上 + XHR 通路：服务端顺手从洗牌袋定下这张弹窗的人物图
+                    # （enc_url 随响应下发）。袋子持久在 data.json，display 页
+                    # meta 刷新/服务重启都不丢轮次；GET 整页勾选（JS 挂了的降级
+                    # 通路）不弹彩蛋，也就不消耗袋子。取消勾选不弹、不消耗。
+                    if it['checked'] and request.args.get('js') == '1':
+                        enc = data.get("encourage") or {}
+                        if enc.get("on"):
+                            if enc.get("rand_char"):
+                                enc_url = file_url(pick_rand_char(enc))
+                            else:
+                                enc_url = file_url(enc.get("img"))
                     save_data(data)
                     checked, meta, found = bool(it["checked"]), item_meta(it), True
                     break
@@ -529,7 +541,8 @@ def register_views(app):
         if request.args.get('js') == '1':
             if not found:
                 return jsonify({"ok": 0}), 404
-            resp = jsonify({"ok": 1, "checked": checked, "meta": meta})
+            resp = jsonify({"ok": 1, "checked": checked, "meta": meta,
+                            "enc_url": enc_url})
             resp.headers['Cache-Control'] = 'no-store'
             return resp
         back_q = urllib.parse.urlencode(
@@ -579,7 +592,8 @@ def register_views(app):
     def admin_encourage_img():
         """鼓励模式人物图上传（multipart file 字段）：白底合成+灰度+缩放后存数据卷
         static/encourage/，并立即追加进 data.json 的候选列表——**上传即生效**，不依赖
-        「保存」；第一张自动设为固定人物。上限 8 张（超了先删几张）。
+        「保存」；第一张自动设为固定人物。收藏库上限 48 张（超了先删几张）；
+        随机池满 30 张时新图自动停用入库（收藏库语义，想上场先停一张）。
         ?key= 通路刻意进不了这里，只有登录的管理页能传。"""
         f = request.files.get('file')
         if not f or not f.filename:
@@ -599,7 +613,7 @@ def register_views(app):
                 delete_file(fname)
                 return jsonify({"ok": False, "error":
                                 u"收藏库已达 %d 张（含停用）：删除一些不需要的再传" % ENC_MAX_IMGS}), 200
-            # 随机池满 8 张时上传仍成功——新图自动停用入库（收藏库语义），想启用先停一张
+            # 随机池满 30 张时上传仍成功——新图自动停用入库（收藏库语义），想启用先停一张
             auto_off = len([e for e in imgs if e["on"]]) >= ENC_MAX_ON
             imgs.append({"f": fname, "on": not auto_off})
             if not enc.get("img") and not auto_off:
@@ -933,7 +947,7 @@ def register_views(app):
             _enc_old = norm_encourage(existing.get("encourage")) or {}
             if enc is None:
                 enc = _enc_old or {"on": False, "name": "", "phrases": [],
-                                   "rand_char": False, "img": "", "imgs": []}
+                                   "rand_char": False, "img": "", "imgs": [], "bag": []}
             else:
                 enc["imgs"] = [e for e in (_enc_old.get("imgs") or []) if file_exists(e["f"])]
                 _on = [e["f"] for e in enc["imgs"] if e["on"]]
@@ -941,6 +955,9 @@ def register_views(app):
                     enc["img"] = _enc_old["img"]
                 else:
                     enc["img"] = _on[0] if _on else ""
+                # 洗牌袋轮次进度一并从现值带回：保存配置不该把随机轮重置
+                # （后续 load 时 normalize 会按最新启用集合再清洗一遍）
+                enc["bag"] = list(_enc_old.get("bag") or [])
             new_data = {
                 "periods": periods,
                 "items": items,

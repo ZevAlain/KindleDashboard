@@ -4,11 +4,14 @@
 设计要点：
 - 人物图只存数据卷（DATA_DIR/static/encourage/），不进仓库——版权形象
   （如汪汪队）由用户自行上传，仓库与公开镜像保持干净。
-- 多人物 + 双随机：话术随机（phrases）与人物随机（rand_char 开=imgs 里
-  随机一张 / 关=固定用 img 指的那张）互不干扰；imgs 由上传/删除接口管理，
-  /admin/save 只管开关/名字/话术/随机选择，永远不动 imgs 列表本身。
-- display 渲染路径零联网：图是本地的，话术/候选图列表由服务端渲染下发，
-  JS 只做随机挑选与显示。
+- 多人物 + 双随机：话术随机（phrases，display 的 JS 本地随机）与人物随机
+  （rand_char 开=洗牌袋轮流出 / 关=固定用 img 指的那张）互不干扰；imgs 由
+  上传/删除接口管理，/admin/save 只管开关/名字/话术/随机选择，永远不动
+  imgs 列表本身。
+- 人物随机 = 洗牌轮（bag）：一轮 = 全部启用图的一个随机排列，弹完一整轮才
+  重洗下一轮；轮次进度（bag）持久在 data.json，display 页 meta 刷新/服务
+  重启都不丢。弹出动作在服务端打勾接口里做（views.toggle_item），display
+  渲染路径依旧零联网：候选图全部预渲染隐藏在 DOM，弹窗时零请求。
 - 图片按墨水屏优化：透明底先合成白底（否则透明区按 RGB(0,0,0) 会变成黑块，
   与 emoji 管线同一坑）→ 转灰度 → 高度 ≤240px；缺 Pillow 时退回存原图（限 500KB）。
 """
@@ -22,11 +25,11 @@ from .config import DATA_DIR
 ENC_DIR = os.path.join(DATA_DIR, "static", "encourage")
 ENC_IMG_MAX_UPLOAD = 5 * 1024 * 1024     # 上传原图上限 5MB
 ENC_IMG_HEIGHT = 240                     # 上屏高度上限（像素）：弹窗尺寸 & Kindle 内存友好
-# 两级上限：收藏库 vs 随机池。启用的（随机池）最多 8 张——太多循环不过来；
-# 停用的不占随机池、只占收藏库，所以"传更多、轮着启用"是支持的；收藏库 24 张
-# 封顶是磁盘与管理 sanity（防无限增长），不是功能限制。
-ENC_MAX_ON = 8
-ENC_MAX_IMGS = 24
+# 两级上限：收藏库 vs 随机池。启用的（随机池）最多 30 张；停用的不占随机池、
+# 只占收藏库，所以"传更多、轮着启用"是支持的；收藏库 48 张封顶是磁盘与管理
+# sanity（防无限增长），不是功能限制。池子大了靠洗牌轮保证观感不重复。
+ENC_MAX_ON = 30
+ENC_MAX_IMGS = 48
 DEFAULT_PHRASES = [u"{n}，你太棒了！", u"干得漂亮，{n}！", u"{n} 真是太厉害了！"]
 # 只认本模块生成的命名（char_<时间戳>.png 及一期遗留的 char.png），杜绝路径注入
 _IMG_NAME_RE = re.compile(r"^char[\w-]*\.png$", re.IGNORECASE)
@@ -47,8 +50,9 @@ def _norm_img_entry(v):
 
 
 def norm_encourage(v):
-    """鼓励模式配置规范化：{on, name, phrases[], rand_char, img, imgs[]}。
-    imgs = [{"f": 文件名, "on": 是否参与随机}]（旧版纯字符串列表自动迁移为 on=True）。
+    """鼓励模式配置规范化：{on, name, phrases[], rand_char, img, imgs[], bag[]}。
+    imgs = [{"f": 文件名, "on": 是否参与随机}]（旧版纯字符串列表自动迁移为 on=True）；
+    bag = 洗牌袋（本轮剩余，见 pick_rand_char），只清洗不重建。
     非 dict 输入返回 None（调用方回退现值，与 _norm_city_list 同一约定）。
     固定人物 img 必须是「已启用」的图：不是则回退第一张启用的；全部停用 = img 空
     （display 不弹，admin 里看着是"暂停"状态，随时启用回来）。"""
@@ -88,8 +92,38 @@ def norm_encourage(v):
         img = on_files[0] if on_files else ""   # 固定人物必须启用
     if not img and on_files:
         img = on_files[0]                       # 没选 = 第一张启用的
+    # 洗牌袋（bag）：本轮还没弹出的启用图文件名，打勾时服务端逐张弹出
+    # （views.toggle_item）。这里只清洗——必须仍在启用集合内、去重、保序；
+    # 不重建，轮空后的重洗由弹出方做（新启用的图下一轮才参战，轮内语义正确）。
+    _on_set = set(on_files)
+    bag = []
+    for f in (v.get("bag") or []):
+        f = os.path.basename(str(f or "").strip())
+        if f in _on_set and f not in bag:
+            bag.append(f)
     return {"on": on, "name": name, "phrases": phrases[:20],
-            "rand_char": rand_char, "img": img, "imgs": imgs}
+            "rand_char": rand_char, "img": img, "imgs": imgs, "bag": bag}
+
+
+def pick_rand_char(enc):
+    """洗牌袋弹出下一张随机人物（原地改 enc['bag']；返回文件名，无启用图返回 ""）：
+    袋子空 = 上一轮已弹完，此时才把全部启用图重洗成新一轮——一轮内每张恰好出现
+    一次，轮与轮之间才可能重复。必须持 DATA_LOCK 且随后 save_data（袋子进度要
+    持久化，display 页 meta 刷新/服务重启都不丢轮次）。"""
+    import random
+    on_files = [e["f"] for e in (enc.get("imgs") or [])
+                if e.get("on", True) and file_exists(e["f"])]
+    if not on_files:
+        enc["bag"] = []
+        return ""
+    _on_set = set(on_files)
+    bag = [f for f in (enc.get("bag") or []) if f in _on_set]
+    if not bag:
+        bag = on_files[:]
+        random.shuffle(bag)
+    f = bag.pop(0)
+    enc["bag"] = bag
+    return f
 
 
 def render_phrases(enc):

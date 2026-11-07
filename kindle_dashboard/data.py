@@ -177,7 +177,7 @@ def normalize(data):
     enc = norm_encourage(data.get("encourage"))
     if enc is None:
         enc = {"on": False, "name": "", "phrases": list(DEFAULT_PHRASES),
-               "rand_char": False, "img": "", "imgs": []}
+               "rand_char": False, "img": "", "imgs": [], "bag": []}
     data["encourage"] = enc
     return data
 DEFAULT_DISPLAY = {"show_weather": True, "show_motto": True, "show_lunar": True, "shuffle_items": False, "show_seq": False}

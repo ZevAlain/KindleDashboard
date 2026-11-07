@@ -567,8 +567,9 @@
     </div>
 
     {# 鼓励模式彩蛋节点：服务端按「开关开着且人物图已上传」直出（隐藏态），话术已渲染
-       成最终文案；候选人物图按配置下发（人物随机=全部 / 固定=选中的那张，都隐藏），
-       JS 在打勾成功后各随机挑一个显示 5 秒。没开启时整块不下发。 #}
+       成最终文案；候选人物图按配置下发（人物随机=全部 / 固定=选中的那张，都隐藏）。
+       打勾成功后弹 5 秒：话术 JS 本地随机；人物图优先用打勾响应带回的 enc_url
+       （服务端洗牌袋——一轮全随机完才开下一轮），弹窗本身零额外请求。没开启整块不下发。 #}
     {% if data['encourage'] %}
     <div class="encourage" id="encourageBox" style="display:none">
         <span class="enc-bubble" id="encText"></span><span class="enc-tail"></span>
@@ -722,12 +723,14 @@
         }
       }
       // 鼓励模式彩蛋：话术由服务端渲染成最终文案、候选人物图由服务端按配置下发
-      // （display 零联网、不读任何存储），这里只做两个独立随机：挑一条话术 + 挑一张
-      // 人物图，显示 5 秒（连点重置计时）；都与上一次不同（连续两次不重复）。
+      // （display 渲染路径零联网——候选图全部预渲染隐藏在 DOM 里）。话术：本地随机、
+      // 连续两次不重复；人物图：优先用打勾响应里服务端带回的 enc_url（洗牌袋——
+      // 一轮把所有启用图随机完才开下一轮，进度存服务端 data.json，页面刷新/重启
+      // 都不丢）；响应没带（老缓存页/兜底）再退回本地随机不连重。
       // 取消勾选不弹——只夸「完成」。面板关闭/页面整页刷新自然把它带走，无需清理。
       var ENC_PHRASES = {% if data['encourage'] %}{{ data['encourage']['phrases'] | tojson }}{% else %}[]{% endif %};
       var _encLast = -1, _encImgLast = -1, _encTimer = null;
-      function _showEncourage() {
+      function _showEncourage(encUrl) {
         try {
           var box = document.getElementById('encourageBox');
           if (!box || !ENC_PHRASES.length) return;
@@ -737,8 +740,18 @@
           document.getElementById('encText').textContent = ENC_PHRASES[i];
           var imgs = box.getElementsByTagName('img');
           if (imgs.length) {
-            var k = Math.floor(Math.random() * imgs.length);
-            if (imgs.length > 1 && k === _encImgLast) k = (k + 1) % imgs.length;
+            var k = -1;
+            if (encUrl) {   // 服务端洗牌袋定的那张（按 URL 路径匹配，忽略 ?v= 版本号）
+              var _base = encUrl.split('?')[0];
+              for (var u = 0; u < imgs.length; u++) {
+                var _s = imgs[u].getAttribute('src') || '';
+                if (_s.split('?')[0] === _base) { k = u; break; }
+              }
+            }
+            if (k < 0) {   // 没带/没匹配上：退回本地随机（连续两次不重复）
+              k = Math.floor(Math.random() * imgs.length);
+              if (imgs.length > 1 && k === _encImgLast) k = (k + 1) % imgs.length;
+            }
             _encImgLast = k;
             for (var j = 0; j < imgs.length; j++) {
               imgs[j].style.display = (j === k) ? 'block' : 'none';
@@ -778,7 +791,7 @@
             // 万一 meta/checked 缺失，按"当前状态取反"推断（ok=1 就说明已经翻过了）
             if (c === null) c = (a.className.indexOf('done') < 0);
             _paintItem(a, c, m);
-            if (c) { _showEncourage(); }   // 勾上（完成）才弹鼓励彩蛋；取消勾选不弹
+            if (c) { _showEncourage((j && j.enc_url) || ''); }   // 勾上才弹；图由服务端洗牌袋定
           };
           var href = a.getAttribute('href') || '';
           x.open('POST', href + (href.indexOf('?') > -1 ? '&' : '?') + 'js=1&t='
