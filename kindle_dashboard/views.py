@@ -801,6 +801,7 @@ def register_views(app):
         # 请求体必须是 application/json：text/plain 伪造的跨站请求直接 400 拒绝，
         # 绝不能静默当成"空 payload"继续保存——那会把整套配置清空。
         # （JSON 里缺字段没关系，下面的合并逻辑会保留现值。）
+        from .aiweather import ai_configured
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"ok": False, "error": "要求 application/json 请求体"}), 400
@@ -986,4 +987,10 @@ def register_views(app):
             save_data(new_data)
         # JSON 响应（前端 fetch 读取）：被拒条目逐条带回，弹窗告知——
         # 用户可以接受"设置不了（可能设错了）"，但不能没有提示。
-        return jsonify({"ok": True, "rejected": rejected})
+        # notices：非拒绝类的"已保存但要注意"（选了 AI 分析而接口没配全等），
+        # 前端用醒目但不阻断的方式展示
+        notices = []
+        if str(weather.get("rain_mode") or "prob") == "ai" and not ai_configured(weather):
+            notices.append(u"已保存：底部条带选了「AI 分析」，但 AI 接口（Base URL / API Key / 模型名）"
+                           u"未配置齐全——看板将继续显示降雨概率条带，配置完整后 30 秒内自动生成 AI 建议")
+        return jsonify({"ok": True, "rejected": rejected, "notices": notices})

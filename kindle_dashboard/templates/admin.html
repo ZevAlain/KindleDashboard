@@ -303,7 +303,7 @@
             <section class="card">
                 <h3><span class="dot"></span>天气<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_weather', this)" title="设置说明">?</button></h3>
                 <p class="sub">设置看板右上角显示的天气地区。</p>
-                <div class="help-box" id="h_weather" style="display:none;">数据来自 open-meteo（免费、无需 key），半小时更新一次；断网退回上次缓存，完全取不到就不显示这块。<b>先搜地区</b>，从结果里点一条，名称与经纬度自动填好；显示地区留空 = 看板不显示天气。<b>面板底部条带</b>：默认显示未来 8 小时降雨概率；选「AI 分析」则换成一句 AI 生成的降雨+穿衣建议（限 60 字内，随天气数据更新重新生成，断网显示上次结果、生成失败自动退回概率条带）。AI 走 OpenAI 兼容接口（第三方服务自己注册），填好 Base URL / API Key / 模型名后点「测试接口」即可验证，不必先保存。</div>
+                <div class="help-box" id="h_weather" style="display:none;">数据来自 open-meteo（免费、无需 key），半小时更新一次；断网退回上次缓存，完全取不到就不显示这块。<b>先搜地区</b>，从结果里点一条，名称与经纬度自动填好；显示地区留空 = 看板不显示天气。<b>面板底部条带</b>：默认显示未来 8 小时降雨概率；选「AI 分析」则换成一句 AI 生成的降雨+穿衣建议（限 60 字内，随天气数据更新重新生成）。<b>没配好 AI 会怎样</b>：接口三项（Base URL / API Key / 模型名）没填齐，或接口一直失败/被清空时，看板继续显示降雨概率条带（不会空、不会报错）；配置填齐保存后 30 秒内自动生成第一条。断网时显示上次成功的结果。AI 走 OpenAI 兼容接口（第三方服务自己注册），填好后点「测试接口」即可验证，不必先保存。</div>
                 <div class="field">
                     <label>① 搜索地区</label>
                     <div class="geo-search">
@@ -358,25 +358,26 @@
                 <div class="row2">
                     <div class="field">
                         <label>⑧ 面板底部条带</label>
-                        <select id="rain_mode">
+                        <select id="rain_mode" onchange="aiModeHint()">
                             <option value="prob"{% if _rw.get('rain_mode', 'prob') != 'ai' %} selected{% endif %}>降雨概率条带（默认）</option>
                             <option value="ai"{% if _rw.get('rain_mode') == 'ai' %} selected{% endif %}>AI 分析（降雨+穿衣建议）</option>
                         </select>
+                        <div class="muted" id="rain_mode_msg" style="margin-top:6px;"></div>
                     </div>
                 </div>
                 <div id="aiFields">
                     <div class="field">
                         <label>AI 接口 · Base URL（OpenAI 兼容；结尾不用带 /chat/completions，带了也兼容）</label>
-                        <input type="text" id="ai_base_url" placeholder="例如：https://api.example.com/v1" value="{{ _rw.get('ai_base_url', '') }}">
+                        <input type="text" id="ai_base_url" placeholder="例如：https://api.example.com/v1" value="{{ _rw.get('ai_base_url', '') }}" oninput="aiModeHint()">
                     </div>
                     <div class="row2">
                         <div class="field">
                             <label>AI 接口 · API Key</label>
-                            <input type="text" id="ai_api_key" placeholder="sk-..." value="{{ _rw.get('ai_api_key', '') }}">
+                            <input type="text" id="ai_api_key" placeholder="sk-..." value="{{ _rw.get('ai_api_key', '') }}" oninput="aiModeHint()">
                         </div>
                         <div class="field">
                             <label>AI 模型名</label>
-                            <input type="text" id="ai_model" placeholder="例如：gpt-4o-mini / deepseek-chat" value="{{ _rw.get('ai_model', '') }}">
+                            <input type="text" id="ai_model" placeholder="例如：gpt-4o-mini / deepseek-chat" value="{{ _rw.get('ai_model', '') }}" oninput="aiModeHint()">
                         </div>
                     </div>
                     <div class="field" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -870,6 +871,25 @@
 
       // AI 接口连通性测试：用表单当前值（未保存也可测）实时调一次 OpenAI 兼容接口。
       // 已有天气缓存时返回的就是将来上屏的那种建议文本；接口慢最长等 30 秒。
+      // ⑧ 选「AI 分析」但接口三项没配全时，开关下方实时提示——看板此时会退回
+      // 降雨概率条带（不会空、不会报错），但用户应当知道 AI 没在跑
+      function aiModeHint() {
+        var msg = document.getElementById('rain_mode_msg');
+        if (!msg) return;
+        var mode = (document.getElementById('rain_mode') || {}).value;
+        var base = ((document.getElementById('ai_base_url') || {}).value || '').trim();
+        var key = ((document.getElementById('ai_api_key') || {}).value || '').trim();
+        var model = ((document.getElementById('ai_model') || {}).value || '').trim();
+        if (mode !== 'ai') { msg.style.color = ''; msg.textContent = ''; return; }
+        if (base && key && model) {
+          msg.style.color = '#16a34a';
+          msg.textContent = '接口配置齐全：保存后看板底部显示 AI 建议。';
+          return;
+        }
+        msg.style.color = '#d97706';
+        msg.textContent = 'AI 接口未配置齐全：看板将继续显示降雨概率条带，直到下面三项填齐并保存。';
+      }
+
       function aiTest(btn) {
         var msg = document.getElementById('ai_test_msg');
         var payload = {
@@ -1433,7 +1453,12 @@
                          + rej.join('\n')
                          + '\n\n其余设置已保存；请修正后再保存一次。');
           }
+          // notices：已保存但要注意的事项（如选了 AI 分析而接口没配全）——醒目但不阻断
+          var nts = (j && j.notices) || [];
+          if (nts.length) { window.alert(nts.join('\n\n')); }
           msg.textContent = rej.length ? ('已保存（' + rej.length + ' 条被拒，见弹窗）') : '已保存。';
+          if (nts.length) { msg.style.color = '#d97706'; msg.textContent = '已保存（有注意事项，见弹窗）'; }
+          else { msg.style.color = ''; }
           var cs = document.querySelectorAll('.card-save');
           for (var ci = 0; ci < cs.length; ci++) {
             (function (b) {
@@ -1480,6 +1505,7 @@
         if (_ep) { _ep.addEventListener('input', encRenderPreview); }
         encRenderPreview();
         renderGeoMap();     // 已配置经纬度时直接显示位置预览
+        aiModeHint();       // 选了 AI 分析而接口没配全时立即提示（看板会退回概率条带）
         var _sp = document.getElementById('seq_pos');
         if (_sp && state.seq_pos) { _sp.value = state.seq_pos; }
         pollApi();

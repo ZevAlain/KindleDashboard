@@ -469,12 +469,15 @@ def get_weather(cfg, now):
             return None
         view = _weather_view(cached, label, now)
         # AI 分析模式（admin 可配）：底部条带换成 AI 建议。只读缓存、绝不联网；
-        # 还没生成过/接口挂了 → 不注入，模板自然回退降雨概率条带（绝不空块）
+        # 还没生成过/接口挂了 → 不注入，模板自然回退降雨概率条带（绝不空块）。
+        # 配置被清空（Base URL/Key/模型缺一）时也不注入——否则屏幕会一直显示
+        # 最后一条旧 AI 文本且永不更新，用户会以为 AI 还在跑
         if str(cfg.get("rain_mode") or "prob") == "ai":
-            from .aiweather import load_ai_text
-            ai_text, _c = load_ai_text()
-            if ai_text:
-                view["ai_line"] = ai_text
+            from .aiweather import ai_configured, load_ai_text
+            if ai_configured(cfg):
+                ai_text, _c = load_ai_text()
+                if ai_text:
+                    view["ai_line"] = ai_text
         return view
     except Exception:
         return None
