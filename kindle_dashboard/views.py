@@ -20,7 +20,7 @@ from .encourage import (ENC_IMG_MAX_UPLOAD, ENC_MAX_IMGS, ENC_MAX_ON, delete_fil
                         enc_thumbs, file_exists, file_path, file_url, img_urls,
                         norm_encourage, pick_rand_char, render_phrases, save_upload)
 from .geocode import geocode_search
-from .holidays import get_holiday_events, nearest_holiday
+from .holidays import _solar_term_events, get_holiday_events, nearest_holiday
 from .lunardate import (_LUNAR_DAY_CN, _LUNAR_MONTH_CN, huangli_day,
                         lunar_date_cn, lunar_to_solar, solar_to_lunar)
 from .motto import _motto_trim, get_motto, split_motto
@@ -242,6 +242,14 @@ def _cal_cells(data, now, y, m):
         ds = str(e.get("date") or "")
         if ds.startswith("%04d-%02d-" % (y, m)):
             events.setdefault(ds, []).append(str(e.get("name") or ""))
+    # 翻到今年/次年之外的月份时，上面的事件表覆盖不到——补上**显示年份**的节气
+    # （天文算法离线算，任意年份零成本；法定节日仍只有当年/次年，那是 timor 数据的事）。
+    # 当年/次年不重复并入：保持与既有渲染逐字节一致。
+    if y not in (now.year, now.year + 1):
+        for e in _solar_term_events(y):
+            ds = str(e.get("date") or "")
+            if ds.startswith("%04d-%02d-" % (y, m)):
+                events.setdefault(ds, []).append(str(e.get("name") or ""))
     bd = {}
     for b in (data.get("special_dates") or []):
         nm = str(b.get("name") or "").strip()

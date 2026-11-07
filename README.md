@@ -44,7 +44,7 @@ pip install -r requirements.txt && python app.py
 
 ## 已知限制
 
-- 农历覆盖 1900–2100；节气表收录至 2027（之后节气行不显示）
+- 农历覆盖 1900–2100；节气由天文算法离线计算（Meeus 太阳黄经，分钟级精度，无年份上限——已用历书库逐条验证）
 - 单密码认证、无内置 HTTPS，按局域网场景设计，勿直接暴露公网
 - 镜像由 GitHub Actions 自动构建到 GHCR（amd64/arm64），`main` 每次提交自动重建，`latest` 始终是最新代码
 
