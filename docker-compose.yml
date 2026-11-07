@@ -1,8 +1,8 @@
 services:
   kindle-dashboard:
-    # 版本一：本地构建（改了代码想立即生效用这个）
-    # 直接用 CI 产物的版本见 docker-compose.image.yml
-    build: .
+    # 版本二：直接用 GitHub Actions 构建好的镜像（main 每次提交自动更新 latest）
+    # 本地构建的版本见 docker-compose.yml
+    image: ghcr.io/zevalain/kindledashboard:latest
     container_name: kindle-dashboard
     restart: unless-stopped
     ports:
