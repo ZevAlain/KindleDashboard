@@ -454,7 +454,7 @@
                 <section class="card">
                     <h3><span class="dot"></span>待办事项<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_todo', this)" title="设置说明">?</button></h3>
                     <p class="sub">逐条管理待办。</p>
-                    <div class="help-box" id="h_todo" style="display:none;">不勾选任何时段 = 全天显示；勾选一个或多个时段 = 仅在这些时段内显示。拖动条目可调整顺序。</div>
+                    <div class="help-box" id="h_todo" style="display:none;">不勾选任何时段 = 全天显示；勾选一个或多个时段 = 仅在这些时段内显示。拖动条目可调整顺序。在某个时段筛选下点「+ 添加事项」，新事项会自动带上该时段（在「全部」视图下添加则默认全天）。</div>
                     <div class="filter-bar" id="filterBar"></div>
                     <div class="list" id="items"></div>
                     <button type="button" class="btn-add" onclick="addItem()">+ 添加事项</button>
@@ -672,7 +672,10 @@
       }
 
       function addItem() {
-        state.items.push({ id: genId('i'), text: '', time: '', checked: false, is_daily: true, freq: 'daily', period_ids: [] });
+        // 正在按时段筛选时新增：自动带上当前时段——否则新事项不属于该时段，
+        // 会被过滤器藏掉，表现为"点了添加没反应"（切回「全部」才看得到它）
+        var pids = (activeFilter !== null) ? [activeFilter] : [];
+        state.items.push({ id: genId('i'), text: '', time: '', checked: false, is_daily: true, freq: 'daily', period_ids: pids });
         renderItems();
       }
 
