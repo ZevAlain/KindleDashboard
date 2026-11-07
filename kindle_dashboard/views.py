@@ -423,6 +423,13 @@ def register_views(app):
         _modes = data.get("land_modes") or [0, 1, 2, 3]
         kindle["land_modes"] = _modes
         kindle["land_next_landscape"] = _next_land(int(land), _modes) in (1, 3)   # 图标：下一方向是横版(90/270)→横屏图标
+        # 时钟字号服务端直出（修复墨水屏"先小后大"）：Kindle 视口恒 600×800，竖屏
+        # 时钟列宽 = (600−44 padding−48 列距)/3 = 169px → 169/2.95 = 57px（与 JS
+        # fitClock 的算法同值）；横屏 CSS/JS 均为 70。首帧字节即正确字号，fitClock
+        # 量出同值写回零变化 → 不再有第二次重绘。老 WebKit 解析途中就开始画屏，
+        # 脚本再早也在首帧之后（20f06a7 提前调用后真机仍可见即此因），服务端直出是
+        # 唯一彻底解法；非 Kindle 设备仍由 fitClock 兜底调整。
+        kindle["clock_font"] = 70 if land in ("1", "3") else 57
         # 面板状态（方案C·服务端记忆）：data.json 的 "panel" 字段——切面板时
         # POST /panel/<n> 写入（与屏幕方向 /land 同一模式）。刷新（meta/手动/唤醒）
         # 一律按记忆由服务端直出首帧，**不依赖 URL/cookie/localStorage**——老 WebKit

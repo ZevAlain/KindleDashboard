@@ -321,7 +321,10 @@
     {% macro render_hero(data) %}
     <div class="hero pane">
         <div class="hero-row">
-            <a class="clock" id="clockTime" href="javascript:void(0)"
+            {# 时钟字号服务端直出（views.py 按 land 预算 57/70px，与 fitClock 算法同值）：
+               墨水屏首帧即正确字号、不再"先小后大"；fitClock 保留作非 Kindle 设备兜底，
+               在 Kindle 上量出同值写回 = 零变化零重绘。 #}
+            <a class="clock" id="clockTime" href="javascript:void(0)" style="font-size: {{ data['clock_font'] }}px"
                onclick="togglePanel('world'); return false;" title="点按展开/收起世界时间">{{ data['clock_time'] }}</a>
             <div class="hero-info">
                 <div class="date-line" id="clockDate">{{ data['date_line'] }}</div>
