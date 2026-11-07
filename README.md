@@ -20,10 +20,7 @@ Kindle 墨水屏家庭看板：把闲置的 Kindle 变成全家共用的信息�
 ## 🚀 运行
 
 ```bash
-# Docker：直接用 CI 构建好的镜像（main 每次提交自动更新）
-docker compose -f docker-compose.image.yml up -d
-
-# 或本地构建
+# Docker（默认 compose 即拉取 CI 构建好的镜像，main 每次提交自动更新）
 docker compose up -d
 
 # 或 docker run（volume 不存在时会自动创建）
