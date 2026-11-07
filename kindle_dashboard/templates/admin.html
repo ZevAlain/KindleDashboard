@@ -303,7 +303,7 @@
             <section class="card">
                 <h3><span class="dot"></span>天气<button type="button" class="card-save" onclick="saveAll(this)">保存</button><button type="button" class="help-btn" onclick="toggleHelp('h_weather', this)" title="设置说明">?</button></h3>
                 <p class="sub">设置看板右上角显示的天气地区。</p>
-                <div class="help-box" id="h_weather" style="display:none;">数据来自 open-meteo（免费、无需 key），半小时更新一次；断网退回上次缓存，完全取不到就不显示这块。<b>先搜地区</b>，从结果里点一条，名称与经纬度自动填好；显示地区留空 = 看板不显示天气。<b>面板底部条带</b>：默认显示未来 8 小时降雨概率；选「AI 分析」则换成一句 AI 生成的降雨+穿衣建议（限 60 字内，随天气数据更新重新生成）。<b>没配好 AI 会怎样</b>：接口三项（Base URL / API Key / 模型名）没填齐，或接口一直失败/被清空时，看板继续显示降雨概率条带（不会空、不会报错）；配置填齐保存后 30 秒内自动生成第一条。断网时显示上次成功的结果。AI 走 OpenAI 兼容接口（第三方服务自己注册），填好后点「测试接口」即可验证，不必先保存。</div>
+                <div class="help-box" id="h_weather" style="display:none;">数据来自 open-meteo（免费、无需 key），半小时更新一次；断网退回上次缓存，完全取不到就不显示这块。<b>先搜地区</b>，从结果里点一条，名称与经纬度自动填好；显示地区留空 = 看板不显示天气。<b>面板底部条带</b>：默认显示未来 8 小时降雨概率；选「AI 分析」则换成一句 AI 生成的降雨+穿衣建议（限 60 字内，随天气数据更新重新生成）。<b>没配好 AI 会怎样</b>：接口三项（Base URL / API Key / 模型名）没填齐，或接口一直失败/被清空时，看板继续显示降雨概率条带（不会空、不会报错）；配置填齐保存后 30 秒内自动生成第一条。断网时显示上次成功的结果。AI 走 OpenAI 兼容接口（第三方服务自己注册），填好后点「测试接口」即可验证，不必先保存。<b>API Key 不回显明文</b>：已保存时输入框留空=保持不变，输入新值即替换；「测试接口」留空时自动用已保存的 Key。</div>
                 <div class="field">
                     <label>① 搜索地区</label>
                     <div class="geo-search">
@@ -373,7 +373,9 @@
                     <div class="row2">
                         <div class="field">
                             <label>AI 接口 · API Key</label>
-                            <input type="text" id="ai_api_key" placeholder="sk-..." value="{{ _rw.get('ai_api_key', '') }}" oninput="aiModeHint()">
+                            <input type="password" id="ai_api_key" autocomplete="new-password"
+                                   placeholder="{{ '已配置（留空保持不变，输入新值即替换）' if _rw.get('ai_api_key') else 'sk-...' }}"
+                                   value="" oninput="aiModeHint()">
                         </div>
                         <div class="field">
                             <label>AI 模型名</label>
@@ -486,6 +488,8 @@
       // 人物图缩略图墙数据：[{f, url, on}]（上传/删除/停用后由接口返回最新值）
       var ENC_THUMBS = {{ enc_thumbs | tojson }};
       var ENC_SEL = {{ enc_img | tojson }};
+      // AI Key 是否已保存（掩码输入不回显明文，aiModeHint 用它判断"配置齐全"）
+      var AI_KEY_SET = {{ 'true' if (data.get('weather') or {}).get('ai_api_key') else 'false' }};
 
       function esc(s) {
         return (s == null ? '' : String(s))
@@ -878,7 +882,7 @@
         if (!msg) return;
         var mode = (document.getElementById('rain_mode') || {}).value;
         var base = ((document.getElementById('ai_base_url') || {}).value || '').trim();
-        var key = ((document.getElementById('ai_api_key') || {}).value || '').trim();
+        var key = ((document.getElementById('ai_api_key') || {}).value || '').trim() || (AI_KEY_SET ? '(已存)' : '');
         var model = ((document.getElementById('ai_model') || {}).value || '').trim();
         if (mode !== 'ai') { msg.style.color = ''; msg.textContent = ''; return; }
         if (base && key && model) {

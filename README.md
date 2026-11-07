@@ -27,13 +27,14 @@ pip install -r requirements.txt && python app.py
 
 - 管理页 `http://<IP>:41241/admin`，密码登录，配置待办/地区/时段
 - 天气面板底部条带可在管理页切换：降雨概率 / AI 分析（自备 OpenAI 兼容服务，填 Base URL + API Key + 模型名，有「测试接口」按钮；AI 由后台线程生成、随天气数据更新，看板路径仍不联网）
-- Kindle 浏览器开 `http://<IP>:41241/display?key=密码` 免登录进看板（此链接只能看板+勾选，进不了管理页）
+- Kindle 浏览器开 `http://<IP>:41241/display?key=看板key` 免登录进看板（看板 key 与管理密码是**两个独立密钥**：免登录链接泄漏只损失看板+勾选，拿它登不进管理页。自动生成的看板 key 见容器日志或 `docker exec kindle-dashboard cat /data/.runtime_secrets`）
 
 ## 配置
 
 | 环境变量 | 说明 |
 |---|---|
-| `KD_PASSWORD` | 登录密码 / 免登录 key（缺省自动生成，写入 `.runtime_secrets`） |
+| `KD_PASSWORD` | 管理页登录密码（缺省自动生成，写入 `.runtime_secrets`） |
+| `KD_DISPLAY_KEY` | 看板免登录 key（`?key=`，与管理密码**独立**——泄漏只损失看板+勾选，登不进管理页；缺省自动生成） |
 | `KD_SECRET_KEY` | session 密钥（固定后重启不掉登录态） |
 | `KD_HOME` | 数据目录，默认代码目录；Docker 内为 `/data` 卷 |
 | `KD_NO_BG` | `1` = 关闭后台刷新线程（调试用） |

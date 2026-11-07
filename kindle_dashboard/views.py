@@ -477,14 +477,23 @@ def register_views(app):
     @app.route('/admin')
     @login_required
     def admin():
+        import copy
         data = get_data()
+        # data_json 会整包序列化进页面 JS（var state = …）：剔除 AI Key 明文——
+        # 输入框已改掩码不回显，但 state 里带着就等于白防（查看源码即见）。
+        # 模板判断「是否已配置」走 data（服务端），不经 data_json。
+        data_json = copy.deepcopy(data)
+        try:
+            (data_json.get("weather") or {}).pop("ai_api_key", None)
+        except Exception:
+            pass
         # 人物图缩略图墙数据 [{f,url,on}]（含停用的）+ 话术预拼文本：
         # 换行必须在路由侧用真换行符拼好——模板表达式里传 "&#10;" 会被 Jinja
         # 当字面字符串输出（真机翻车：刷新后台后多行话术连成一行、显示 &#10;）
         enc = norm_encourage(data.get("encourage")) or {}
         enc_phrases_text = "\n".join(enc.get("phrases") or [])
         # 版本号在此显示（不侵占 display 空间）：单一来源 config.APP_VERSION（CI 注入）
-        return render_template('admin.html', data=data, data_json=data,
+        return render_template('admin.html', data=data, data_json=data_json,
                                app_version=APP_VERSION, enc_thumbs=enc_thumbs(enc),
                                enc_phrases_text=enc_phrases_text,
                                enc_max_on=ENC_MAX_ON, enc_max_imgs=ENC_MAX_IMGS,
@@ -585,14 +594,21 @@ def register_views(app):
         失败返回可读错误（key 无效 / 地址不通 / 模型名错），绝不 500。"""
         from .aiweather import fetch_ai_weather
         body = request.get_json(silent=True) or {}
+        saved = get_data().get("weather") or {}
+
+        def _f(k, cap):
+            # 表单留空的字段用已保存的配置补齐（Key 是掩码输入，未改动时表单为空）
+            v = str(body.get(k) or '').strip() or str(saved.get(k) or '').strip()
+            return v[:cap]
+
         cfg = {
-            "ai_base_url": str(body.get('ai_base_url') or '').strip()[:300],
-            "ai_api_key": str(body.get('ai_api_key') or '').strip()[:200],
-            "ai_model": str(body.get('ai_model') or '').strip()[:100],
+            "ai_base_url": _f("ai_base_url", 300),
+            "ai_api_key": _f("ai_api_key", 200),
+            "ai_model": _f("ai_model", 100),
         }
         view = None
         try:
-            view = get_weather(get_data().get("weather") or {}, now_cn())
+            view = get_weather(saved, now_cn())
         except Exception:
             view = None
         try:
@@ -900,6 +916,11 @@ def register_views(app):
                 items = [dict(i) for i in (existing.get("items") or [])]
             if keep_weather:
                 weather = dict(existing.get("weather") or {})
+            # AI Key 掩码输入的配套语义：表单里留空 = 保持已存的 Key（admin 页不回显
+            # 明文，改 key 才需要输入新值；想"关掉"AI 用 ⑧ 切回概率条带即可）
+            if not str(weather.get("ai_api_key") or "").strip():
+                weather["ai_api_key"] = str((existing.get("weather") or {})
+                                            .get("ai_api_key") or "").strip()[:200]
             # 勾选状态以服务器为准：admin 界面不提供改勾选的入口，payload 里的 checked
             # 只是 admin 页加载时的旧快照——后台页开着不关时，家人在 Kindle 上刚勾/刚取消
             # 的事项会被这次全量保存静默回滚（新加条目仍按提交值，默认未勾）。
