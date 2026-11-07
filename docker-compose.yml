@@ -10,8 +10,11 @@ services:
     volumes:
       - kindle-data:/data        # 配置、待办、缓存、密钥全在 volume 里，备份见 README
     environment:
-      - TZ=Asia/Shanghai        # 容器日志时间；看板时间服务端固定按东八区计算，不受影响
-      - KD_PASSWORD=change-me   # 建议改成自己的密码；不设则首次启动自动生成（见容器日志）
+      - TZ=Asia/Shanghai                  # 容器日志时间；看板时间服务端固定按东八区计算，不受影响
+      - KD_PASSWORD=change-me             # 管理页登录密码；不设则首次启动自动生成（见容器日志）
+      - KD_DISPLAY_KEY=change-me-too      # Kindle 书签 ?key= 用的看板 key，与管理密码是两个
+                                          # 独立密钥（泄漏只损失看板+勾选，登不进管理页）——
+                                          # 别填和管理密码一样的值；不设则自动生成
 
 volumes:
   kindle-data:
