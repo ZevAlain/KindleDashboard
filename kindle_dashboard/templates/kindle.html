@@ -35,8 +35,8 @@
                  line-height: 74px;
                  text-decoration: none; color: #000000; cursor: pointer; }
                  /* 行盒钉死 74 = 右侧三行之和，改字号也不会顶高页眉；<a>：点击进世界时区页 */
-        .lunar-line { display: block; text-decoration: none; color: #000000; }   /* <a>：点按进万年历 */
-        .hero-info { margin-right: 24px; }
+        .lunar-line { display: block; }   /* 农历行（万年历入口之一，整列可点见 .hero-info） */
+        .hero-info { margin-right: 24px; display: block; text-decoration: none; color: #000000; }   /* <a>：整列=万年历入口，与左右两列同款整块可点 */
         /* 行高表：第1行 28 / 第2行 24 / 第3行 22 = 74 —— 与右列逐行等高、与时钟等高 */
         .date-line { height: 28px; line-height: 28px; font-size: 19px; font-weight: 600; color: #000000; }
         .lunar-line { height: 24px; line-height: 24px; font-size: 16px; color: #000000; }
@@ -326,16 +326,20 @@
                在 Kindle 上量出同值写回 = 零变化零重绘。 #}
             <a class="clock" id="clockTime" href="javascript:void(0)" style="font-size: {{ data['clock_font'] }}px"
                onclick="togglePanel('world'); return false;" title="点按展开/收起世界时间">{{ data['clock_time'] }}</a>
-            <div class="hero-info">
+            {# 整列可点（与左时钟/右天气同款「整块一个 <a>」）：公历日期/农历/节日三行
+               都是万年历入口。原来只有农历行是链接——Kindle 按压高亮只在真 <a> 上出现，
+               三列高亮区域不一致，且公历日期行点了没反应。<a> 包多行 div 与天气块
+               同一真机已验证模式（R1 内联 onclick）。 #}
+            <a class="hero-info" href="javascript:void(0)"
+               onclick="togglePanel('cal'); return false;" title="点按展开/收起万年历（整月格子 + 当日吉凶）">
                 <div class="date-line" id="clockDate">{{ data['date_line'] }}</div>
                 {% if data['lunar_line'] %}
-                <a class="lunar-line" href="javascript:void(0)"
-                   onclick="togglePanel('cal'); return false;" title="点按展开/收起万年历（整月格子 + 当日吉凶）">{{ data['lunar_line'] }}</a>
+                <div class="lunar-line">{{ data['lunar_line'] }}</div>
                 {% endif %}
                 {% if data['holiday_text'] %}
                 <div class="holiday">{{ data['holiday_html'] | safe }}</div>
                 {% endif %}
-            </div>
+            </a>
             {% if data['weather'] %}
             <a class="weather" id="weatherBox" href="javascript:void(0)" onclick="toggleCmp(); return false;">
                 <div class="w-top">{{ data['weather']['svg'] | safe }}<span class="w-temp">{{ data['weather']['temp'] }}</span>{% if data['weather']['feel'] %}<span class="w-extra">{{ data['weather']['feel'] }}</span>{% endif %}</div>
